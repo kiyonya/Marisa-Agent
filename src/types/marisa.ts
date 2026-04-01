@@ -2,11 +2,9 @@ import { ChatCompletionMessageCustomToolCall, ChatCompletionMessageFunctionToolC
 import type { LLMCompletion } from "./completion";
 import OpenAI from "openai";
 import { StdioServerParameters } from "@modelcontextprotocol/sdk/client/stdio.js";
-import MCPTool from "../core/tool/mcp_tool";
-import LocalTool from "../core/tool/local_tool";
-import OpenAIModel from "../core/model/openai_model";
-import BaseModel from "../core/model/base_model";
-import AgentSkills from "../core/skill/skill";
+import MCPTool from "../core/tool/MCPTool";
+import LocalTool from "../core/tool/LocalTool";
+import Toolkit from "../core/tool/Toolkit";
 
 export namespace Marisa {
 
@@ -20,7 +18,7 @@ export namespace Marisa {
             promptCacheRetention?: 'in-memory' | '24h' | null
             toolChoice?: | 'none' | 'auto' | 'required'
             parallelToolCalls?: boolean,
-            simplifyHistorySession?:boolean
+            simplifyHistorySession?: boolean
         }
 
         export interface ModelOptions {
@@ -28,8 +26,8 @@ export namespace Marisa {
             modelToolMap?: Map<string, Marisa.Tool.AnyTool>,
             modelContextDumpFile?: string,
             modelRolePrompt?: string,
-            modelSkills?:Map<string,Marisa.Skill.ModelSkillMetadata>,
-            modelSkillLoadTool?:LocalTool<{skillName:string}>
+            modelSkills?: Map<string, Marisa.Skill.ModelSkillMetadata>,
+            modelSkillLoadTool?: LocalTool<{ skillName: string }>
         }
 
         export interface LLMCreateOptions extends ModelCompletionOptions {
@@ -65,22 +63,26 @@ export namespace Marisa {
 
             export namespace Messages {
 
-                export interface ChatCompletionSystemMessage {
+                export interface Message {
+                    timestamp:number
+                }
+
+                export interface ChatCompletionSystemMessage extends Message {
                     content: string;
                     role: 'system';
                     name?: string;
                 }
-                export interface ChatCompletionDeveloperMessage {
+                export interface ChatCompletionDeveloperMessage extends Message {
                     content: string
                     role: 'developer';
                     name?: string;
                 }
-                export interface ChatCompletionUserMessage {
+                export interface ChatCompletionUserMessage extends Message  {
                     content: string
                     role: 'user';
                     name?: string;
                 }
-                export interface ChatCompletionAssistantMessageParam {
+                export interface ChatCompletionAssistantMessageParam extends Message {
                     role: 'assistant';
                     audio?: { id: string } | null;
                     content?: string
@@ -89,7 +91,7 @@ export namespace Marisa {
                     refusal?: string | null;
                     tool_calls?: Array<OpenAIChatCompletionMessageToolCall>;
                 }
-                export interface ChatCompletionToolCallMessage {
+                export interface ChatCompletionToolCallMessage extends Message {
                     content: string
                     role: 'tool';
                     tool_call_id: string;
@@ -135,7 +137,9 @@ export namespace Marisa {
             export interface CompletionSession {
                 sessionId: string | number,
                 messages: CompletionMessage[],
-                usage: CompletionUsage
+                usage: CompletionUsage,
+                timestamp: number,
+                
             }
 
             export interface CompletionContext {
@@ -157,6 +161,8 @@ export namespace Marisa {
 
         export type AnyTool = MCPTool<any> | LocalTool<any>
 
+        export type AnyToolkit = Toolkit<any>
+
         export namespace MCP {
             export interface MCPToolIOSchema {
                 [x: string]: unknown;
@@ -174,7 +180,7 @@ export namespace Marisa {
 
     export namespace Skill {
 
-        export interface ModelSkills extends Record<string,string> {}
+        export interface ModelSkills extends Record<string, string> { }
 
         export interface ModelSkillMetadata {
             name: string,
@@ -232,16 +238,53 @@ export namespace Marisa {
 
     export namespace Events {
         export interface Agent {
-            toolsRegistered: [tools:{name:string,description:string}[]]
-            skillsRegistered:[skills:{name:string,description:string}[]],
-            contextLoad:[],
-            modelCreate:[]
-        }   
+            toolsRegistered: [tools: { name: string, description: string }[]]
+            skillsRegistered: [skills: { name: string, description: string }[]],
+            contextLoad: [],
+            modelCreate: []
+        }
 
         export interface Model {
-            toolCall:[name:string,arguments:Record<string,any>],
-            toolCallResult:[name:string,arguments:Record<string,any>,result:any],
-            toolCallError:[name:string,arguments:Record<string,any>,error:any]
+            toolCall: [name: string, arguments: Record<string, any>],
+            toolCallResult: [name: string, arguments: Record<string, any>, result: any],
+            toolCallError: [name: string, arguments: Record<string, any>, error: any]
+        }
+    }
+
+    export namespace Provider {
+        export namespace OpenAI {
+
+
+            export type OpenAIChatModel = string | ('gpt-4o' | 'gpt-4o-mini' | 'gpt-4-turbo' | 'gpt-4-turbo-preview' | 'gpt-4-0125-preview' | 'gpt-4-1106-preview' | 'gpt-4-vision-preview' | 'gpt-4' | 'gpt-4-0613' | 'gpt-4-0314' | 'gpt-3.5-turbo' | 'gpt-3.5-turbo-0125' | 'gpt-3.5-turbo-1106' | 'gpt-3.5-turbo-0613' | 'gpt-3.5-turbo-16k' | 'gpt-3.5-turbo-16k-0613' | 'o1-preview' | 'o1-mini' | 'o1-2024-12-17')
+        }
+    }
+
+    export namespace Embedding {
+
+        export interface EmbeddingVec {
+            embedding: Float32Array | Array<number>;
+            index: number;
+            object: 'embedding';
+        }
+
+        export interface EmbeddingUsage {
+            completion_tokens?: number,
+            prompt_tokens: number,
+            total_tokens: number
+        }
+
+        export interface EmbeddingResponse {
+            model: string,
+            data: EmbeddingVec[],
+            object: 'list',
+            usage: EmbeddingUsage
+        }
+    }
+
+    export namespace VecStore {
+        export interface VecStoreMemoryMetadata {
+            doc:string,
+            cate:string
         }
     }
 }

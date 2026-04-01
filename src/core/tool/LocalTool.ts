@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import ToolBase from "./base_tool";
+import ToolBase from "./BaseTool";
 import { z } from 'zod'
 import { Marisa } from "../../types/marisa";
 

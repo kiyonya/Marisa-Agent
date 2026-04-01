@@ -1,5 +1,5 @@
 
-import ToolBase from "./base_tool";
+import ToolBase from "./BaseTool";
 import { Marisa } from "../../types/marisa";
 
 export type MCPToolInputSchemaLike = Marisa.Tool.MCP.MCPToolIOSchema

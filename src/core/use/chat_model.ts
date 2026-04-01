@@ -1,11 +1,12 @@
-import OpenAIModel from "../model/openai_model";
+import OpenAIModel from "../model/provider/OpenAIModel";
 import readline from 'readline'
 import chalk from "chalk";
+import Model from "../model/Model";
 
 export default class CommandLineModelChat {
-    private model: OpenAIModel
+    private model:Model
     private rl: readline.Interface
-    constructor(model: OpenAIModel) {
+    constructor(model: Model) {
         this.model = model
         this.rl = readline.createInterface({
             input: process.stdin,

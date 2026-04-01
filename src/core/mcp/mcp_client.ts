@@ -2,8 +2,8 @@ import { StdioClientTransport, type StdioServerParameters } from "@modelcontextp
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { Client } from "@modelcontextprotocol/sdk/client";
 import { CallToolResultSchema, ListToolsResultSchema, type ListToolsResult } from "@modelcontextprotocol/sdk/types.js";
-import MCPTool from "../tool/mcp_tool.ts";
-import Toolkit from "../tool/toolkit.ts";
+import MCPTool from "../tool/MCPTool.ts";
+import Toolkit from "../tool/Toolkit.ts";
 
 export default class MCPToolkit extends Toolkit {
 

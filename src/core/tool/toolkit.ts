@@ -1,6 +1,6 @@
 import z from "zod";
-import LocalTool from "./local_tool";
-import MCPTool from "./mcp_tool";
+import LocalTool from "./LocalTool";
+import MCPTool from "./MCPTool";
 import { Marisa } from "../../types/marisa";
 
 export interface ToolGroupCreateOptions {
