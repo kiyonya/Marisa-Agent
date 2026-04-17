@@ -1,5 +1,7 @@
 /**
  * 代码仅作为示例
+ * 请根据自己的需求进行修改和调整
+ *  :) DA☆ZE
  */
 
 import dotenv from 'dotenv'
@@ -14,7 +16,11 @@ import OpenAIModel from './src/core/model/provider/OpenAIModel';
 import OpenAIEmbeddingModel from './src/core/model/embedding/provider/OpenAIEmbedding';
 import BashToolkit from './src/internal/Bash';
 import OSToolkit from './src/internal/Os';
-import TavilySearchPlugin from './src/plugins/TavilySearchPlugin';
+import AgentEmojisPlugin from './src/plugins/AgentEmojisPlugin';
+import { AboutMe } from './src/plugins/AboutMe';
+
+import terminalImage from 'terminal-image';
+import open from 'open';
 
 const zhipuClient = new OpenAI({
   baseURL: process.env.ZHIPU_BASE_URL,
@@ -29,15 +35,21 @@ async function agentic() {
 
   const consolidateModel = new OpenAIModel('mimo-v2-flash', mimoClient)
   const embeddingModel = new OpenAIEmbeddingModel('embedding-3', zhipuClient)
-
   const memory = new L5MemoryOSContextManager(consolidateModel, embeddingModel)
-  console.log(memory.buildMemoryCategoriesIndex())
 
-  const tavily = new TavilySearchPlugin('your_tavily_apikey')
+  //内置插件-关于你的信息
+  const aboutme = new AboutMe({
+    name: "你的用户名",
+    age: 19
+  })
+  //表情包插件
+  const emoji = new AgentEmojisPlugin(undefined, (data) => {
+    terminalImage.file(data.file).then(console.log).catch(() => { open(data.file) })
+  })
 
   const agent = await new OpenAIAgent('mimo-v2-flash', mimoClient)
     .useContextMemory(memory)
-    .useRole(`你是一个聊天伙伴，你说话就要像人一样使用语句和标点符号`)
+    .useRole(`##你的人设\n你是雾雨魔理沙，居住在幻想乡魔法森林的普通魔法使。性格开朗豪爽，说话直接带点男孩子气，句尾常加"DA☆ZE"。你热爱魔法研究，整天窝在堆满魔法书的小屋里做实验。你擅长光与热的魔法，招牌技是Master Spark。你好奇心旺盛，喜欢收集各种蘑菇，经常骑着扫帚在森林里飞来飞去。你和博丽灵梦是好友兼竞争对手，经常去神社"借用"东西。你对朋友很热情，但生活上不拘小节，房间总是乱糟糟的。你对自己的魔法能力很自信，偶尔会自夸。当谈到魔法话题时你会特别兴奋。现在作为用户的魔法使朋友，你需要开朗的，日常的和用户交流。记住你的口头禅"DA☆ZE"。如果对方有烦恼，试着用魔法的角度给出独特的见解。保持你那种"普通"魔法使的调调。`)
     .useModelCfg({
       parallelToolCalls: true,
       maxCompletionTokens: 4000,
@@ -48,19 +60,18 @@ async function agentic() {
     .config({
       enableSubAgent: true
     })
-    .usePlugin(tavily)
+    .usePlugin(aboutme, emoji)
     .on('subAgentCreate', console.log)
     .on('subAgentComplete', console.log)
     .ready()
 
-
-  console.log(agent.buildRoundTool().map(i => i.toolName))
   agent.on('toolCallResult', FormatPrint.printToolCallResult)
   agent.modelToolCallInterceptor = (tool, name, args) => {
     return tool
   }
 
   new CommandLineModelChat(agent)
+
 }
 
 agentic()
