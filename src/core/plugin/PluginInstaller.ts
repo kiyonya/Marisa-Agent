@@ -43,6 +43,18 @@ export default class PluginInstaller extends EventEmitter {
         return this
     }
 
+    public registerConstantTool(...tools: Marisa.Tool.AnyTool[]){
+        for (const tool of tools) {
+            const toolName = tool.toolName
+            if (this.registedConstantTools.has(toolName)) {
+                console.log('')
+                continue
+            }
+            this.registedConstantTools.set(toolName, tool)
+        }
+        return this
+    }
+
     public registerSystemPrompt(...prompt: string[]) {
         this.registedSystemPrompts.push(...prompt)
         return this

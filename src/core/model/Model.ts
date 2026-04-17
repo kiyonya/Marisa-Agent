@@ -33,7 +33,7 @@ export default abstract class Model extends EventEmitter<Marisa.Events.Model> {
     protected modelContextManager: ModelContextManager | null = null
     protected modelSkillMetadatas: Marisa.Skill.ModelSkillMetadata[] = []
 
-    protected modeExtraSystemPrompt:string[] = []
+    protected modelExtraSystemPrompt:string[] = []
 
     protected modelProgressiveToolCaller: LocalTool<{ toolNames: string[] }>
     protected modelNextProgressTurnTools: Marisa.Tool.AnyTool[] = []
@@ -61,6 +61,11 @@ export default abstract class Model extends EventEmitter<Marisa.Events.Model> {
             toolNames: z.array(z.string())
         })
 
+    }
+
+    public defineExtraSystemPrompt(...prompt:string[]){
+        this.modelExtraSystemPrompt.push(...prompt)
+        return this
     }
 
     public defineConstantTools(...tools: Marisa.Tool.AnyTool[]) {
@@ -235,17 +240,24 @@ export default abstract class Model extends EventEmitter<Marisa.Events.Model> {
         for (const [name, tool] of this.modelToolMap.entries()) {
             toolDescRecord[name] = tool.description
         }
-        const prompt = `当前开启了渐进式工具加载，你在调用工具前必须先使用一个叫load_tools的工具来加载工具，调用这个工具时，你需要提供一个工具名称的数组，工具名称需要完全匹配，工具列表和对应的描述如下：${JSON.stringify(toolDescRecord)}，调用工具后会将对应的工具注入到聊天上下文中，在本轮后续的对话中你就可以使用这些工具了。如果你需要其他的工具了，你可以再次调用load_tools工具来加载，本次对话的工具会叠加。`
+        const prompt = `##渐进式加载你的工具\n当前开启了渐进式工具加载，你在调用工具前必须先使用一个叫load_tools的工具来加载工具，调用这个工具时，你需要提供一个工具名称的数组，工具名称需要完全匹配，工具列表和对应的描述如下：\n${JSON.stringify(toolDescRecord,null,2)}，\n调用工具后会将对应的工具注入到聊天上下文中，在本轮后续的对话中你就可以使用这些工具了。如果你需要其他的工具了，你可以再次调用load_tools工具来加载，本次对话的工具会叠加。`
         return prompt
     }
 
     public builsDefaultSystemPrompt(customL1?: string): string {
-        const promptFrags: string[] = [this.modelSystemPrompt, this.modelRolePrompt, this.getTimeContext()]
+
+        const promptFragsL1:string[] = customL1 ? [customL1] : [this.modelSystemPrompt, this.modelRolePrompt]
+
+        const promptFragsL2:string[] = []
+
+        const promptFragsL3:string[] = [...this.modelExtraSystemPrompt]
+
+        const promptFrags: string[] = [...promptFragsL1,...promptFragsL2,...promptFragsL3].filter(i=>i !== null)
+
         if (this.modelCompletionOptions?.enableProgressiveTools) {
             promptFrags.push(this.buildProgressiveToolPrompt())
         }
         return promptFrags.join('\n\n')
-
     }
 
     protected getTimeContext() {

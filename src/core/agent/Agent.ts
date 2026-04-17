@@ -236,7 +236,8 @@ export default abstract class Agent extends EventEmitter<AgentEvents> {
             model.defineModelRole(this.modelRolePrompt)
         }
 
-        model.defineSystemPrompt(`${this.agentDefaultSystemPrompt}\n\n${this.modelSystemPrompt}`)
+        const agentSystemPrompt = [this.agentDefaultSystemPrompt,this.modelSystemPrompt].filter(Boolean).join('\n\n')
+        model.defineSystemPrompt(agentSystemPrompt)
 
         this.emit('ready')
         if (modelCreateCallback) {
@@ -250,12 +251,13 @@ export default abstract class Agent extends EventEmitter<AgentEvents> {
         const installer = new PluginInstaller(this.workspace)
         const installFunction = plugin.installFunction
         if (installFunction) {
-            installFunction(installer)
+            await installFunction(installer)
         }
         const installed = await installer.install()
         try {
             model.defineTools(...installed.tools)
             model.defineConstantTools(...installed.constantTools)
+            model.defineExtraSystemPrompt(...installed.systemPrompts)
         } catch (error) {
 
         }
