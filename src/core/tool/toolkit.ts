@@ -51,5 +51,18 @@ export default class Toolkit<P extends ToolkitPermissions = ToolkitPermissions> 
     public list(): (LocalTool<any, any> | MCPTool<any, any>)[] {
         return this.registeredTools
     }
+
+    public [Symbol.iterator]() {
+        let index = 0;
+        const tools = this.registeredTools;
+        return {
+            next(): IteratorResult<LocalTool<any, any> | MCPTool<any, any>> {
+                if (index < tools.length) {
+                    return { value: tools[index++] as (LocalTool<any, any> | MCPTool<any, any>), done: false };
+                }
+                return { value: null, done: true };
+            }
+        };
+    }
 }
 

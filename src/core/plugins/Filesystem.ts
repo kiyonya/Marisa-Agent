@@ -14,27 +14,12 @@ export default class FileSystemPlugin extends ModelPluginRegister {
         const fileSystemToolkit = new Toolkit({
             name: "filesystem",
             version: '1.0.1'
-        }, {
-            isPathPermitted: (targetPath: string) => {
-                if (!process.env.PATH_PREMISSION) {
-                    return true
-                }
-                else {
-                    if (targetPath.includes(process.env.PATH_PREMISSION)) {
-                        return true
-                    }
-                    return false
-                }
-            }
         })
 
         fileSystemToolkit.tool<{ filePath: string, encoding?: 'utf-8' }>(
             "read_text_file",
             "读取文本文件",
-            async (params, perm) => {
-                if (!perm.isPathPermitted(params.filePath)) {
-                    throw new Error("当前路径不允许操作")
-                }
+            async (params ) => {
                 const filePath = params.filePath
                 if (!fs.existsSync(filePath)) {
                     throw new Error(`no such file ${filePath}`)
@@ -52,10 +37,7 @@ export default class FileSystemPlugin extends ModelPluginRegister {
         fileSystemToolkit.tool<{ filePath: string, content: string, encoding?: 'utf-8', append?: boolean }>(
             "write_text_file",
             "写入文本到文件,会自动创建目录",
-            async (params, perm) => {
-                if (!perm.isPathPermitted(params.filePath)) {
-                    throw new Error("当前路径不允许操作")
-                }
+            async (params) => {
                 const filePath = params.filePath
                 fse.ensureDir(path.dirname(filePath))
                 const options = { encoding: params.encoding || 'utf-8' }
@@ -75,10 +57,7 @@ export default class FileSystemPlugin extends ModelPluginRegister {
         fileSystemToolkit.tool<{ dirPath: string }>(
             "read_directory",
             "读取目录",
-            async (params, perm) => {
-                if (!perm.isPathPermitted(params.dirPath)) {
-                    throw new Error("当前路径不允许操作")
-                }
+            async (params) => {
                 const dirPath = params.dirPath
                 if (!fs.existsSync(dirPath)) {
                     throw new Error(`no such directory ${dirPath}`)
@@ -95,10 +74,7 @@ export default class FileSystemPlugin extends ModelPluginRegister {
         fileSystemToolkit.tool<{ targetPath: string }>(
             "read_path_details",
             "读取路径的详细信息",
-            async (params, perm) => {
-                if (!perm.isPathPermitted(params.targetPath)) {
-                    throw new Error("当前路径不允许操作")
-                }
+            async (params) => {
                 const filePath = params.targetPath
                 if (!fs.existsSync(filePath)) {
                     throw new Error(`no such file or directory ${filePath}`)
@@ -122,10 +98,7 @@ export default class FileSystemPlugin extends ModelPluginRegister {
         fileSystemToolkit.tool<{ targetPath: string }>(
             "mkdir",
             "创建文件夹",
-            async (params, perm) => {
-                if (!perm.isPathPermitted(params.targetPath)) {
-                    throw new Error("当前路径不允许操作")
-                }
+            async (params) => {
                 await fse.ensureDir(params.targetPath)
                 return params.targetPath
             },
@@ -137,12 +110,7 @@ export default class FileSystemPlugin extends ModelPluginRegister {
         fileSystemToolkit.tool<{ srcPath: string, targetPath: string }>(
             "copy",
             "拷贝目录或者文件夹",
-            async (params, perm) => {
-
-                if (!perm.isPathPermitted(params.srcPath) || !perm.isPathPermitted(params.targetPath)) {
-                    throw new Error("当前路径不允许操作")
-                }
-
+            async (params) => {
                 if (!params.srcPath || !params.targetPath) {
                     throw new Error("srcPath和targetPath不能为空")
                 }
@@ -158,10 +126,7 @@ export default class FileSystemPlugin extends ModelPluginRegister {
         fileSystemToolkit.tool<{ targetPath: string }>(
             "remove",
             "删除文件或者文件夹",
-            async (params, perm) => {
-                if (!perm.isPathPermitted(params.targetPath)) {
-                    throw new Error("当前路径不允许操作")
-                }
+            async (params) => {
                 if (!params.targetPath) {
                     throw new Error("targetPath不能为空")
                 }
@@ -176,10 +141,7 @@ export default class FileSystemPlugin extends ModelPluginRegister {
         fileSystemToolkit.tool<{ targetPath: string }>(
             "path_exists",
             "检查路径是否存在",
-            async (params, perm) => {
-                if (!perm.isPathPermitted(params.targetPath)) {
-                    throw new Error("当前路径不允许操作")
-                }
+            async (params) => {
                 if (!params.targetPath) {
                     throw new Error("targetPath不能为空")
                 }
@@ -193,10 +155,7 @@ export default class FileSystemPlugin extends ModelPluginRegister {
         fileSystemToolkit.tool<{ targetPath: string, newName: string }>(
             "rename_path",
             "重命名文件或文件夹",
-            async (params, perm) => {
-                if (!perm.isPathPermitted(params.targetPath)) {
-                    throw new Error("当前路径不允许操作")
-                }
+            async (params) => {
                 if (!params.targetPath || !params.newName) {
                     throw new Error("targetPath和newName不能为空")
                 }

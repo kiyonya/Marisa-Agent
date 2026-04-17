@@ -25,9 +25,7 @@ export default class MCPToolkit extends Toolkit {
             version: '1.0'
         })
         await this.client.connect(this.transport)
-        const tools = await this.client.request({
-            method: 'tools/list'
-        }, ListToolsResultSchema)
+        const tools = await this.client.listTools()
         this.mcpTools = tools
         return await this.registeMCPTools()
     }

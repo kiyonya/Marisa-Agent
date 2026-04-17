@@ -15,15 +15,15 @@ export interface VectorStoreQueryResult<Metadata> {
 export default class SqliteVecStore<Metadata extends Record<string, any> = Record<string, any>> extends VectorStore<Metadata> {
     private dbfile: string;
     private db: Database;
-    private vecDimensions: number;
+    public dimension: number;
     private tableName: string;
     private metadataTableName: string;
 
-    constructor(dbfile: string, dimensions: number, metadata?: keyof Metadata) {
+    constructor(dbfile: string, dimensions: number) {
         super();
         dbfile = path.resolve(dbfile)
         this.dbfile = dbfile;
-        this.vecDimensions = dimensions;
+        this.dimension = dimensions;
         this.tableName = 'vec_items';
         this.metadataTableName = 'items_metadata';
 
@@ -33,7 +33,7 @@ export default class SqliteVecStore<Metadata extends Record<string, any> = Recor
 
         this.db.run('PRAGMA journal_mode = WAL');
         this.db.run('PRAGMA synchronous = NORMAL');
-        this.db.run('PRAGMA cache_size = -20000'); 
+        this.db.run('PRAGMA cache_size = -20000');
         this.db.run('PRAGMA temp_store = MEMORY');
 
         load(this.db);
@@ -42,25 +42,18 @@ export default class SqliteVecStore<Metadata extends Record<string, any> = Recor
 
     private createTables() {
         this.db.run(`
-      CREATE VIRTUAL TABLE IF NOT EXISTS ${this.tableName} USING vec0(
-        embedding float[${this.vecDimensions}]
-      )
-    `);
-
+            CREATE VIRTUAL TABLE IF NOT EXISTS ${this.tableName} USING vec0(
+                embedding float[${this.dimension}]
+            )
+        `);
         this.db.run(`
-      CREATE TABLE IF NOT EXISTS ${this.metadataTableName} (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        rowid INTEGER UNIQUE,
-        metadata TEXT,
-        created_at INTEGER,
-        updated_at INTEGER
-      )
-    `);
-
-        this.db.run(`
-      CREATE INDEX IF NOT EXISTS idx_metadata_rowid 
-      ON ${this.metadataTableName}(rowid)
-    `);
+            CREATE TABLE IF NOT EXISTS ${this.metadataTableName} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                metadata TEXT,
+                created_at INTEGER,
+                updated_at INTEGER
+            )
+        `);
     }
 
     public override async insert(vectors: Float32Array | Float32Array[], metadata?: Metadata | Metadata[]): Promise<void> {
@@ -73,79 +66,73 @@ export default class SqliteVecStore<Metadata extends Record<string, any> = Recor
             throw new Error('Vectors and metadata arrays must have the same length');
         }
 
-        const insertVector = this.db.prepare(`
-      INSERT INTO ${this.tableName}(rowid, embedding) 
-      VALUES (?, vec_f32(?))
-    `);
+        const now = Date.now();
 
         const insertMetadata = this.db.prepare(`
-      INSERT INTO ${this.metadataTableName}(rowid, metadata, created_at, updated_at) 
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(rowid) DO UPDATE SET
-        metadata = excluded.metadata,
-        updated_at = excluded.updated_at
-    `);
+            INSERT INTO ${this.metadataTableName}(metadata, created_at, updated_at) 
+            VALUES (?, ?, ?)
+        `);
 
-        const maxRowId = this.db.query(`
-      SELECT COALESCE(MAX(rowid), 0) as max_id 
-      FROM ${this.metadataTableName}
-    `).get() as { max_id: number };
+        const insertVector = this.db.prepare(`
+            INSERT INTO ${this.tableName}(rowid, embedding) 
+            VALUES (?, vec_f32(?))
+        `);
 
-        let currentId = maxRowId.max_id + 1;
         const transaction = this.db.transaction(() => {
             for (let i = 0; i < vectorsArray.length; i++) {
                 const vector = vectorsArray[i] as Float32Array;
                 const meta = metadataArray[i];
-                const now = Date.now();
-                insertVector.run(currentId, new Float32Array(vector));
-                insertMetadata.run(
-                    currentId,
+
+                const result = insertMetadata.run(
                     JSON.stringify(meta),
                     (meta as any)?.created_at || now,
                     now
                 );
-                currentId++;
+                const id = result.lastInsertRowid;
+                insertVector.run(id, new Float32Array(vector));
             }
         });
 
         transaction();
     }
 
-    public override async batchInsert(items: Array<{ vector: Float32Array; metadata?: Metadata; id?: number }>): Promise<void> {
-        const insertVector = this.db.prepare(`
-      INSERT INTO ${this.tableName}(rowid, embedding) 
-      VALUES (?, vec_f32(?))
-    `);
+    public override async batchInsert(items: Array<{ vector: Float32Array; metadata?: Metadata }>): Promise<void> {
+        if (items.length === 0) return;
+
+        const now = Date.now();
+        const maxIdResult = this.db.query(`
+            SELECT COALESCE(MAX(id), 0) as max_id 
+            FROM ${this.metadataTableName}
+        `).get() as { max_id: number };
+
+        let nextId = maxIdResult.max_id + 1;
 
         const insertMetadata = this.db.prepare(`
-      INSERT INTO ${this.metadataTableName}(rowid, metadata, created_at, updated_at) 
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(rowid) DO UPDATE SET
-        metadata = excluded.metadata,
-        updated_at = excluded.updated_at
-    `);
+            INSERT INTO ${this.metadataTableName}(id, metadata, created_at, updated_at) 
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                metadata = excluded.metadata,
+                updated_at = excluded.updated_at
+        `);
 
-        const maxRowId = this.db.query(`
-      SELECT COALESCE(MAX(rowid), 0) as max_id 
-      FROM ${this.metadataTableName}
-    `).get() as { max_id: number };
-
-        let currentId = maxRowId.max_id + 1;
-        const now = Date.now();
+        const insertVector = this.db.prepare(`
+            INSERT OR REPLACE INTO ${this.tableName}(rowid, embedding) 
+            VALUES (?, vec_f32(?))
+        `);
 
         const transaction = this.db.transaction(() => {
             for (const item of items) {
-                const id = item.id !== undefined ? item.id : currentId++;
-
-                insertVector.run(id, new Float32Array(item.vector));
+                const id = nextId++;
                 insertMetadata.run(
                     id,
                     JSON.stringify(item.metadata || {}),
                     (item.metadata as any)?.created_at || now,
                     now
                 );
+                insertVector.run(id, new Float32Array(item.vector));
             }
         });
+
         transaction();
     }
 
@@ -160,23 +147,25 @@ export default class SqliteVecStore<Metadata extends Record<string, any> = Recor
             orderBy = 'distance',
             order = 'ASC'
         } = options || {};
+
         let filterSql = '';
         let filterParams: any[] = [];
 
         if (metadataFilter) {
             const filterResult = this.sqlFilterToJsonExtract(metadataFilter.toSqlFilter());
-            console.log(filterResult)
             filterSql = filterResult.sql;
             filterParams = filterResult.params;
         }
+
         let sql = `
-      SELECT 
-        v.rowid as id,
-        v.distance,
-        m.metadata
-      FROM ${this.tableName} v
-      INNER JOIN ${this.metadataTableName} m ON m.rowid = v.rowid
-    `;
+            SELECT 
+                v.rowid as id,
+                v.distance,
+                m.metadata
+            FROM ${this.tableName} v
+            INNER JOIN ${this.metadataTableName} m ON m.id = v.rowid
+        `;
+
         const params: any[] = [];
 
         if (filterSql) {
@@ -188,11 +177,10 @@ export default class SqliteVecStore<Metadata extends Record<string, any> = Recor
         }
 
         params.push(new Float32Array(vector), recall);
-
         sql += ` ORDER BY v.${orderBy} ${order}`;
         sql += ` LIMIT ?`;
-
         params.push(limit);
+
         const results = this.db.prepare(sql).all(...params);
         return results.map((row: any) => ({
             rowid: Number(row.id),
@@ -205,14 +193,14 @@ export default class SqliteVecStore<Metadata extends Record<string, any> = Recor
     public override async delete(rowid: number): Promise<void> {
         const transaction = this.db.transaction(() => {
             this.db.run(`DELETE FROM ${this.tableName} WHERE rowid = ?`, [rowid]);
-            this.db.run(`DELETE FROM ${this.metadataTableName} WHERE rowid = ?`, [rowid]);
+            this.db.run(`DELETE FROM ${this.metadataTableName} WHERE id = ?`, [rowid]);
         });
         transaction();
     }
 
     public async getMetadata(id: number): Promise<Metadata | null> {
         const result = this.db
-            .prepare(`SELECT metadata FROM ${this.metadataTableName} WHERE rowid = ?`)
+            .prepare(`SELECT metadata FROM ${this.metadataTableName} WHERE id = ?`)
             .get(id) as { metadata: string } | undefined;
 
         if (!result) return null;
@@ -253,4 +241,4 @@ export default class SqliteVecStore<Metadata extends Record<string, any> = Recor
             params: filterResult.params
         };
     }
-} 
+}

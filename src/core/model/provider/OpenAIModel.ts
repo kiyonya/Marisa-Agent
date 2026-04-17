@@ -3,6 +3,8 @@ import { Marisa } from "../../../types/marisa";
 import Model from "../Model";
 import ModelSessionView from "../../session/ModelSessionView";
 
+type BuildToolFilter = (tool:Marisa.Tool.AnyTool)=>boolean
+
 export default class OpenAIModel extends Model {
 
     private client: OpenAI
@@ -11,23 +13,25 @@ export default class OpenAIModel extends Model {
         this.client = client || new OpenAI()
     }
 
-    public override async complete(prompt: string, toolMap: Map<string, Marisa.Tool.AnyTool>): Promise<Marisa.Chat.Completion.CompletionSession> {
-        let systemPrompt = this.builsDefaultSystemPrompt()
+    public override async complete(prompt: string, systemPrompt?: string, toolMap?: Map<string, Marisa.Tool.AnyTool>): Promise<Marisa.Chat.Completion.CompletionSession> {
+        const completionSystemPrompt = systemPrompt || this.builsDefaultSystemPrompt() || ''
         const currentSessionView = this.createEmptySessionView()
         currentSessionView.pushMessage({
             role: 'system',
-            content: systemPrompt,
+            content: completionSystemPrompt,
             timestamp: Date.now()
         })
         const userMessage = this.createUserMessage(prompt)
         currentSessionView.pushMessage(userMessage)
         await this._complete(currentSessionView, toolMap)
-        return currentSessionView.getSession()
+        const session = currentSessionView.getSession()
+        this.onSessionEnd('complete', session)
+        return session
     }
 
-    private async _complete(sessionView: ModelSessionView, toolMap: Map<string, Marisa.Tool.AnyTool>): Promise<OpenAI.Chat.Completions.ChatCompletion> {
+    private async _complete(sessionView: ModelSessionView, toolMap?: Map<string, Marisa.Tool.AnyTool>): Promise<OpenAI.Chat.Completions.ChatCompletion> {
 
-        const roundTools = this.buildIsolationTool(toolMap).map(i => i.build())
+        const roundTools = (toolMap && toolMap.size) ? this.buildIsolationTool(toolMap).map(i => i.build()) : []
         const messages = this.headSystemMessages(sessionView.unpackToOpenAIMessages())
 
         const openaiChatCreateOptions: OpenAI.Chat.Completions.ChatCompletionCreateParams =
@@ -148,15 +152,18 @@ export default class OpenAIModel extends Model {
         currentSessionView.destory()
         historySessionView.destory()
 
+        this.onSessionEnd('invoke', session)
         return session
     }
 
     private async _invoke(
         historySessionView: ModelSessionView,
         currentSessionView: ModelSessionView,
-        onSessionUpdate?: Marisa.Chat.Completion.OnSessionUpdateCallback): Promise<void> {
+        onSessionUpdate?: Marisa.Chat.Completion.OnSessionUpdateCallback,
+        toolFilter?:BuildToolFilter
+    ): Promise<void> {
 
-        const roundTools = this.buildRoundTool().map(i => i.build())
+        const roundTools = this.buildRoundTool(toolFilter).map(i => i.build())
 
         const openaiChatCreateOptions: OpenAI.Chat.Completions.ChatCompletionCreateParams =
         {
@@ -180,8 +187,15 @@ export default class OpenAIModel extends Model {
                 role: 'assistant',
                 content: choice.message.content || '',
                 tool_calls: choice.message.tool_calls,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+
             };
+
+            //@ts-ignore
+            if (choice.reasoning_content) {
+                //@ts-ignore
+                assistantMsg.reasoning_content = choice.reasoning_content
+            }
 
             currentSessionView.pushMessage(assistantMsg)
 
@@ -219,7 +233,7 @@ export default class OpenAIModel extends Model {
                         }
                     }
                 }
-                return await this._invoke(historySessionView, currentSessionView, onSessionUpdate);
+                return await this._invoke(historySessionView, currentSessionView, onSessionUpdate,toolFilter);
             }
         }
 
@@ -267,6 +281,7 @@ export default class OpenAIModel extends Model {
         currentSessionView.destory()
         historySessionView.destory()
 
+        this.onSessionEnd('invokeStream', session)
         return session
     }
 
@@ -275,9 +290,10 @@ export default class OpenAIModel extends Model {
         currentSessionView: ModelSessionView,
         onResponse?: Marisa.Chat.Completion.OnStreamResponseCallback,
         onSessionUpdate?: Marisa.Chat.Completion.OnSessionUpdateCallback,
+        toolFilter?:BuildToolFilter,
     ): Promise<void> {
 
-        const roundTools = this.buildRoundTool().map(i => i.build())
+        const roundTools = this.buildRoundTool(toolFilter).map(i => i.build())
         const openaiChatStreamCreateOptions: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming =
         {
             model: this.modelName,
@@ -324,6 +340,12 @@ export default class OpenAIModel extends Model {
                 finishReason = choice.finish_reason
             }
 
+            //@ts-ignore
+            if (choice.reasoning_content) {
+                //@ts-ignore
+                assistantMessage.reasoning_content = choice.reasoning_content
+            }
+
             if (choice.delta.content) {
                 const delta = choice.delta.content
                 responseContent += delta
@@ -356,14 +378,18 @@ export default class OpenAIModel extends Model {
             }
         }
 
-        currentSessionView.pushMessage(assistantMessage)
         const toolCalls = Object.values(toolCallsMap)
 
         if (toolCalls.length > 0) {
             assistantMessage.tool_calls = toolCalls
         }
+        currentSessionView.pushMessage(assistantMessage)
 
         if (finishReason === 'tool_calls' || toolCalls.length > 0) {
+
+            //mimo-v2-flash  mimo-v2-pro callreason
+            //@ts-ignore
+
             for (const toolCall of toolCalls) {
                 if (toolCall.type === 'function') {
                     try {
@@ -396,9 +422,57 @@ export default class OpenAIModel extends Model {
                 }
             }
 
-            return await this._invokeStream(historySessionView, currentSessionView, onResponse, onSessionUpdate)
+            return await this._invokeStream(historySessionView, currentSessionView, onResponse, onSessionUpdate,toolFilter)
         }
 
+    }
+
+    public override async invokeIsolate(prompt: string, l1sysPrompt?: string, onSessionUpdate?: Marisa.Chat.Completion.OnSessionUpdateCallback,roundToolFilter?:BuildToolFilter): Promise<Marisa.Chat.Completion.CompletionSession> {
+        const currentSessionView = this.createEmptySessionView()
+        let systemPrompt = this.builsDefaultSystemPrompt(l1sysPrompt)
+
+        const [_, systemPromptAddition] = this.modelContextManager ? await this.modelContextManager.query(prompt) : [[], '']
+        systemPrompt += systemPromptAddition
+
+        currentSessionView.pushMessage({
+            role: 'system',
+            content: systemPrompt,
+            timestamp: Date.now()
+        })
+        const userMessage = this.createUserMessage(prompt)
+        currentSessionView.pushMessage(userMessage)
+
+        if (onSessionUpdate) {
+            currentSessionView.sessionUpdateIndicator(onSessionUpdate)
+        }
+
+        await this._invoke(this.createEmptySessionView(), currentSessionView, onSessionUpdate,roundToolFilter)
+        const session = currentSessionView.getSession()
+        currentSessionView.destory()
+        this.onSessionEnd('invoke', session)
+        return session
+    }
+
+    public override async invokeStreamIsolate(prompt: string, l1sysPrompt?: string, onResponse?: Marisa.Chat.Completion.OnStreamResponseCallback, onSessionUpdate?: Marisa.Chat.Completion.OnSessionUpdateCallback,roundToolFilter?:BuildToolFilter): Promise<Marisa.Chat.Completion.CompletionSession> {
+        const currentSessionView = this.createEmptySessionView()
+        let systemPrompt = this.builsDefaultSystemPrompt(l1sysPrompt)
+        const [_, systemPromptAddition] = this.modelContextManager ? await this.modelContextManager.query(prompt) : [[], '']
+        systemPrompt += systemPromptAddition
+        currentSessionView.pushMessage({
+            role: 'system',
+            content: systemPrompt,
+            timestamp: Date.now()
+        })
+        const userMessage = this.createUserMessage(prompt)
+        currentSessionView.pushMessage(userMessage)
+        if (onSessionUpdate) {
+            currentSessionView.sessionUpdateIndicator(onSessionUpdate)
+        }
+        await this._invokeStream(this.createEmptySessionView(), currentSessionView, onResponse, onSessionUpdate,roundToolFilter)
+        const session = currentSessionView.getSession()
+        currentSessionView.destory()
+        this.onSessionEnd('invokeStream', session)
+        return session
     }
 
     private headSystemMessages(messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[]) {

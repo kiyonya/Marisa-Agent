@@ -7,10 +7,12 @@ import LocalTool from "../tool/LocalTool";
 import VectorStore from "../vecstore/VectorStore";
 import { ModelContextManager } from "./ModelContextManager";
 import path from "node:path";
-import { existsSync, readFileSync, writeFile } from "fs-extra";
+import { existsSync, readFileSync, writeFile, writeFileSync } from "fs-extra";
 import FormatPrint from "../use/format_print";
 import chalk from "chalk";
 import SqliteVecStore from "../vecstore/SqliteVecStore";
+import { deepClone } from "../utils/base";
+import PQueue from 'p-queue';
 
 type AllowStoreRole = 'user' | 'assistant' | 'developer'
 
@@ -62,26 +64,70 @@ export default class L2MemoryOSContextManager extends ModelContextManager {
     private tempAppendEvents: Metadata[] = []
     private tempMemoryUpdate: string = ''
 
+    private pendingConsolidateSessionsSet = new Set<Marisa.Chat.Completion.CompletionSession[]>()
+    private consolidateQueue = new PQueue({ concurrency: 1 })
+
     constructor(sessions: Marisa.Chat.Completion.CompletionSession[], chatModel: Model, embeddingModel: EmbeddingModel, vectorStore?: VectorStore<Metadata>) {
         super(sessions)
         this.chatModel = chatModel
         this.embeddingModel = embeddingModel
         const store = this.getWorkspace('memories')
-        this.vectorStore = vectorStore || new SqliteVecStore<Metadata>(path.join(store,'vecstore.db'),this.embeddingDimensions)
+        this.vectorStore = vectorStore || new SqliteVecStore<Metadata>(path.join(store, 'vecstore.db'), this.embeddingDimensions)
         this.putToolMap = this.createPutToolMap()
+
+        const pendingSessionSaves = this.readPendingSessionsState() || []
+        for (const session of pendingSessionSaves) {
+            this.addPendingSession(session)
+        }
+
     }
 
     public override async put(session: Marisa.Chat.Completion.CompletionSession, withHistory?: Marisa.Chat.Completion.CompletionSession[], sessionPutCallback?: () => void): Promise<any> {
 
         this.addSession(session)
-        this.pendingSessions.add(session)
-        if (this.pendingSessions.size >= this.hotMemoryLength) {
-            console.log('信息总结开始')
-            const sessions = [...this.pendingSessions.values()]
-            await this.consolidate(sessions)
-            console.log('信息总结完成')
-            sessionPutCallback && sessionPutCallback()
+        this.addPendingSession(session)
+        sessionPutCallback && sessionPutCallback()
+        this.emit('sessionPut', session)
+    }
+
+    public addPendingSession(session: Marisa.Chat.Completion.CompletionSession) {
+
+        //靠北啦
+        const cloneSession = deepClone(session)
+        const lastPendingArray = [...this.pendingConsolidateSessionsSet][-1]
+        if (!lastPendingArray || lastPendingArray.length > this.hotMemoryLength) {
+            const insertArray: Marisa.Chat.Completion.CompletionSession[] = []
+            insertArray.push(cloneSession)
+            this.pendingConsolidateSessionsSet.add(insertArray)
         }
+        else {
+            lastPendingArray.push(cloneSession)
+        }
+        this.savePendingSessionsState()
+
+        if (lastPendingArray && lastPendingArray.length > this.hotMemoryLength) {
+            this.consolidateQueue.add(() => this.consolidate(lastPendingArray)).then(() => {
+                this.pendingConsolidateSessionsSet.delete(lastPendingArray)
+                this.savePendingSessionsState()
+            })
+        }
+    }
+
+    public savePendingSessionsState() {
+        const allPendingSessions = [...this.pendingConsolidateSessionsSet].flat()
+        const temp = this.getWorkspace('temp')
+        const tempPendingFile = path.join(temp, 'mos_pending_sessions.json')
+        writeFileSync(tempPendingFile, JSON.stringify(allPendingSessions), 'utf-8')
+    }
+
+    public readPendingSessionsState(): Marisa.Chat.Completion.CompletionSession[] {
+        const temp = this.getWorkspace('temp')
+        const tempPendingFile = path.join(temp, 'mos_pending_sessions.json')
+        if (existsSync(tempPendingFile)) {
+            const sessions: Marisa.Chat.Completion.CompletionSession[] = JSON.parse(readFileSync(tempPendingFile, 'utf-8'))
+            return sessions
+        }
+        return []
     }
 
     private readCurrentLongtermMemory(): string {
@@ -133,22 +179,6 @@ export default class L2MemoryOSContextManager extends ModelContextManager {
         return toolMap
     }
 
-    private createDreamToolMap() {
-
-        const updateLongtermMemoryTool = new LocalTool<{ content: string }>('update_longterm_memory', '更新长期记忆', ({ content }) => {
-            this.tempMemoryUpdate = content
-            return true
-        },
-            {
-                content: z.string().describe('总结后的完整记忆内容，条目之间要使用换行符分割')
-
-            })
-
-        const toolMap = new Map<string, Marisa.Tool.AnyTool>()
-        toolMap.set(updateLongtermMemoryTool.toolName, updateLongtermMemoryTool)
-        return toolMap
-    }
-
     private async consolidate(sessions: Marisa.Chat.Completion.CompletionSession[]) {
         const preprocessedMetadatas = this.filterMetadata(sessions)
         const messages: string[] = []
@@ -172,8 +202,8 @@ export default class L2MemoryOSContextManager extends ModelContextManager {
         })
         this.chatModel.on('toolCallResult', FormatPrint.printToolCallResult)
         try {
-            const completion = await this.chatModel.complete(prompt, this.putToolMap)
-            console.log(completion.usage.total_tokens)
+            const completion = await this.chatModel.complete(prompt, undefined, this.putToolMap)
+            this.emit('consolidated', completion)
         } catch (error) {
             console.error(error)
             const keepLength = 5
@@ -182,6 +212,7 @@ export default class L2MemoryOSContextManager extends ModelContextManager {
         }
 
         await Promise.all([this.storeEvents(), this.storeMemories()])
+        this.emit('consolidateSave')
     }
 
     private async storeEvents() {
@@ -303,13 +334,14 @@ export default class L2MemoryOSContextManager extends ModelContextManager {
         const f32array = new Float32Array(vectors)
 
         const relevant = await this.vectorStore.search(f32array, undefined, { limit: this.relevantRankLimit, orderBy: 'distance' })
-        console.log(chalk.bgBlue.white(`找到以下信息进行参照\n${relevant.map(u => u.metadata?.doc).join('\n')}\n`))
         const messages = relevant.map(i => i.metadata).map(this.releventToMessage)
         const relevantSession = this.createEmptySession()
         relevantSession.messages = messages.filter(i => i !== null)
         const currentLongtermMemory = this.readCurrentLongtermMemory()
         //进行BM25
-        return [this.noSystemInject([relevantSession, ...hotSessions]), currentLongtermMemory]
+        const querySessions = [relevantSession, ...hotSessions]
+        this.emit('sessionQuery', userPrompt, querySessions, currentLongtermMemory, `向量数据库找到 ${relevant.length} 条相关记忆`)
+        return [this.noSystemInject(querySessions), currentLongtermMemory]
     }
 
     private releventToMessage(rel?: Metadata) {

@@ -15,6 +15,8 @@ export interface DBSearchOptions {
 
 export default abstract class VectorStore<Metadata = Record<string,string>> {
 
+    public dimemsion:number = 512
+
     public abstract insert(vectors: Float32Array,metadata?:Metadata): Promise<void>
 
     public abstract batchInsert(items:Array<{vector: Float32Array;metadata?: Metadata;id?: number}>):Promise<void>

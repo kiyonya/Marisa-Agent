@@ -103,8 +103,7 @@ export default class LLMSummaryVecStoreContextManager extends ModelContextManage
         ## 当前对话记录
         ${currentMessages.join('\n')}
         `
-        this.model.defineSystemPrompt('你是一个总结大师，你只需要总结应该总结的事情')
-        const completion = await this.model.complete(prompt, this.modelToolMap)
+        const completion = await this.model.complete(prompt, '你是一个总结大师，你只需要总结应该总结的事情',this.modelToolMap)
         console.log(completion)
         if (sessionPutCallback) {
             sessionPutCallback()

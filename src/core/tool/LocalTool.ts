@@ -5,8 +5,9 @@ import { Marisa } from "../../types/marisa";
 
 type PermissionChecker = () => boolean | Promise<boolean>
 type IPermissions = Record<string, PermissionChecker>
+type NonVoidToolResult<T> = T extends void ? never : T
 
-export default class LocalTool<ToolParams extends Record<string, any> = {}, ToolResult = any, Permissions = IPermissions> extends ToolBase<ToolParams, ToolResult, Permissions> {
+export default class LocalTool<ToolParams extends Record<string, any> = {}, ToolResult = NonVoidToolResult<any>, Permissions = IPermissions> extends ToolBase<ToolParams, ToolResult, Permissions> {
 
     protected override executor: ((params: ToolParams, permission: Permissions) => ToolResult | Promise<ToolResult>) | null = null;
     public override toolName: string = '';

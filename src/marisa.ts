@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import OpenAIAgent from "./agent/OpenAIAgent";
+import OpenAIAgent from "./agent/provider/OpenAIAgent";
 
 export default class Marisa {
 

@@ -1,9 +1,9 @@
 import OpenAI from "openai";
-import Agent from "./Agent";
-import Model from "../core/model/Model";
-import EmbeddingModel from "../core/model/embedding/EmbeddingModel";
-import OpenAIModel from "../core/model/provider/OpenAIModel";
-import OpenAIEmbeddingModel from "../core/model/embedding/provider/OpenAIEmbedding";
+import Agent from "../Agent";
+import Model from "../../model/Model";
+import EmbeddingModel from "../../model/embedding/EmbeddingModel";
+import OpenAIModel from "../../model/provider/OpenAIModel";
+import OpenAIEmbeddingModel from "../../model/embedding/provider/OpenAIEmbedding";
 
 export default class OpenAIAgent extends Agent {
     constructor(chatModelName: string, openaiClient?: OpenAI) {

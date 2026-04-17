@@ -94,7 +94,7 @@ export default class LLMSummaryFileContextManager extends ModelContextManager {
 
     public override async put(currentSession: Marisa.Chat.Completion.CompletionSession, _: Marisa.Chat.Completion.CompletionSession[], sessionPutCallback?: () => void): Promise<any> {
         this.modelSessions.push(currentSession)
-        await this.saveContext(currentSession)
+        this.saveContext(currentSession)
 
         let currentMessages: string[] = []
         for (const message of currentSession.messages) {
@@ -134,13 +134,14 @@ export default class LLMSummaryFileContextManager extends ModelContextManager {
         ## 当前对话记录
         ${allMessages.join('\n')}
         `
-            const completeSession = await this.model.complete(prompt, this.modelToolMap)
+            const completeSession = await this.model.complete(prompt, undefined,this.modelToolMap)
             sessionPutCallback && sessionPutCallback()
             console.log(completeSession)
             this.modelPendingSummaryMessages.clear()
         }
 
         this.modelPendingSummaryMessages.push(currentMessages)
+        this.emit('sessionPut',currentSession)
     }
 
     public fmtTmstp(timestampms:number){
@@ -210,7 +211,7 @@ export default class LLMSummaryFileContextManager extends ModelContextManager {
         ${filteredSubMemories.join('\n')}
         ` : ''
 
-        console.log(beforeSessions.length,promptAddition)
+       this.emit('sessionQuery',userPrompt,beforeSessions,promptAddition,'')
         return [this.noSystemInject(beforeSessions), promptAddition]
     }
 }

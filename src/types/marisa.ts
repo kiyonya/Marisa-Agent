@@ -18,7 +18,8 @@ export namespace Marisa {
             promptCacheRetention?: 'in-memory' | '24h' | null
             toolChoice?: | 'none' | 'auto' | 'required'
             parallelToolCalls?: boolean,
-            simplifyHistorySession?: boolean
+            simplifyHistorySession?: boolean,
+            enableProgressiveTools?:boolean
         }
 
         export interface ModelOptions {
@@ -64,7 +65,7 @@ export namespace Marisa {
             export namespace Messages {
 
                 export interface Message {
-                    timestamp:number
+                    timestamp: number
                 }
 
                 export interface ChatCompletionSystemMessage extends Message {
@@ -77,7 +78,7 @@ export namespace Marisa {
                     role: 'developer';
                     name?: string;
                 }
-                export interface ChatCompletionUserMessage extends Message  {
+                export interface ChatCompletionUserMessage extends Message {
                     content: string
                     role: 'user';
                     name?: string;
@@ -90,6 +91,7 @@ export namespace Marisa {
                     name?: string;
                     refusal?: string | null;
                     tool_calls?: Array<OpenAIChatCompletionMessageToolCall>;
+                    reasoning_content?: string
                 }
                 export interface ChatCompletionToolCallMessage extends Message {
                     content: string
@@ -139,7 +141,7 @@ export namespace Marisa {
                 messages: CompletionMessage[],
                 usage: CompletionUsage,
                 timestamp: number,
-                
+
             }
 
             export interface CompletionContext {
@@ -244,10 +246,23 @@ export namespace Marisa {
             modelCreate: []
         }
 
-        export interface Model {
+        export interface Model  {
             toolCall: [name: string, arguments: Record<string, any>],
             toolCallResult: [name: string, arguments: Record<string, any>, result: any],
-            toolCallError: [name: string, arguments: Record<string, any>, error: any]
+            toolCallError: [name: string, arguments: Record<string, any>, error: any],
+            sessionEnd: [mode: 'invoke' | 'invokeStream' | 'complete', session: Marisa.Chat.Completion.CompletionSession]
+        }
+
+        export interface ModelContextManager {
+            sessionPut: [session: Marisa.Chat.Completion.CompletionSession],
+            sessionQuery: [query: string, sessions: Marisa.Chat.Completion.CompletionSession[], promptAddition: string, tip: string],
+            sessionSave: [file: string],
+            consolidated: [session: Marisa.Chat.Completion.CompletionSession],
+            consolidateSave: []
+        }
+
+        export interface Model extends ModelContextManager {
+           
         }
     }
 
@@ -283,8 +298,8 @@ export namespace Marisa {
 
     export namespace VecStore {
         export interface VecStoreMemoryMetadata {
-            doc:string,
-            cate:string
+            doc: string,
+            cate: string
         }
     }
 }
