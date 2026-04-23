@@ -1,8 +1,8 @@
 import path from "node:path";
-import AgentPluginBase from "../core/plugin/AgentPluginBase";
+import AgentPluginBase from "@core/plugin/agent-plugin-base";
 import fse from 'fs-extra'
 import { z } from 'zod'
-import LocalTool from "../core/tool/LocalTool";
+import LocalTool from "@core/tool/local-tool";
 
 type EmojiGroup = string
 interface EmojiItem {
@@ -99,6 +99,7 @@ export default class AgentEmojisPlugin extends AgentPluginBase {
                     return `表情包 ${name} 在分组 ${groupName} 中不存在`
                 }
                 const filePath = path.resolve(path.join(emojisDir, groupName, emoji.file))
+                console.log('表情包路径', filePath)
                 if (fse.existsSync(filePath)) {
                     const data = {
                         name: emoji.name,
@@ -109,7 +110,7 @@ export default class AgentEmojisPlugin extends AgentPluginBase {
                         this.onSend(data)
                     }
                 }
-                return "表情包已发送，请继续对话，不要重复发送表情"
+                return "表情包已发送，你可以继续对话或者结束对话，请不要重复发送表情"
             },
                 {
                     groupName: z.string().describe('表情包分组名称'),

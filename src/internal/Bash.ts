@@ -1,11 +1,11 @@
-import Toolkit from "../core/tool/Toolkit"
+import ToolGroup from "../core/tool/tool-group"
 import { promisify } from "node:util";
 import child_process from 'child_process'
 import z from "zod";
 import open from 'open'
 
 const execPromise = promisify(child_process.exec)
-const BashToolkit = new Toolkit({
+const BashToolkit = new ToolGroup({
     name: "bash",
     version: "0.0.1"
 })

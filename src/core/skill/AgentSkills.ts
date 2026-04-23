@@ -1,6 +1,6 @@
 import z from "zod"
 import { Marisa } from "../../types/marisa"
-import LocalTool from "../tool/LocalTool"
+import LocalTool from "../tool/local-tool"
 import AgentSkillReader from "./reader"
 import fse from 'fs-extra'
 

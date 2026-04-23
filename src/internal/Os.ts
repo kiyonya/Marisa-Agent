@@ -1,6 +1,6 @@
-import Toolkit from "../core/tool/Toolkit";
+import ToolGroup from "../core/tool/tool-group";
 import os from 'os'
-const OSToolkit = new Toolkit({
+const OSToolkit = new ToolGroup({
     name: "os",
     version: "0.0.1"
 })

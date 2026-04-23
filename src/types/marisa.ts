@@ -2,9 +2,9 @@ import { ChatCompletionMessageCustomToolCall, ChatCompletionMessageFunctionToolC
 import type { LLMCompletion } from "./completion";
 import OpenAI from "openai";
 import { StdioServerParameters } from "@modelcontextprotocol/sdk/client/stdio.js";
-import MCPTool from "../core/tool/MCPTool";
-import LocalTool from "../core/tool/LocalTool";
-import Toolkit from "../core/tool/Toolkit";
+import MCPTool from "../core/tool/mcp-tool";
+import LocalTool from "../core/tool/local-tool";
+import ToolGroup from "../core/tool/tool-group";
 
 export namespace Marisa {
 
@@ -97,6 +97,7 @@ export namespace Marisa {
                     content: string
                     role: 'tool';
                     tool_call_id: string;
+                    is_error?:boolean
                 }
                 export type OpenAIChatCompletionMessageToolCall =
                     | ChatCompletionMessageFunctionToolCall
@@ -122,6 +123,7 @@ export namespace Marisa {
                 total_tokens: number;
                 completion_tokens_details?: CompletionTokensDetails;
                 prompt_tokens_details?: PromptTokensDetails;
+                cache_tokens?:number
             }
 
             export interface CompletionTokensDetails {
@@ -163,7 +165,7 @@ export namespace Marisa {
 
         export type AnyTool = MCPTool<any> | LocalTool<any>
 
-        export type AnyToolkit = Toolkit<any>
+        export type AnyToolkit = ToolGroup<any>
 
         export namespace MCP {
             export interface MCPToolIOSchema {

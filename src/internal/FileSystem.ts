@@ -1,10 +1,10 @@
-import Toolkit from "../core/tool/Toolkit"
+import ToolGroup from "../core/tool/tool-group"
 import fs from 'fs'
 import fse from 'fs-extra'
 import path from "path"
 import z from "zod"
 
-const FileSystemToolkit = new Toolkit({
+const FileSystemToolkit = new ToolGroup({
     name: "filesystem",
     version: '1.0.1'
 })

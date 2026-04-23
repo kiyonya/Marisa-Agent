@@ -9,6 +9,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.90.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@types/cron": "^2.4.3",
     "@types/fs-extra": "^11.0.4",

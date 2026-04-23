@@ -1,5 +1,5 @@
 import path from "node:path";
-import AgentPluginBase from "../core/plugin/AgentPluginBase";
+import AgentPluginBase from "../core/plugin/agent-plugin-base";
 import fse from 'fs-extra'
 
 interface UserProfile {

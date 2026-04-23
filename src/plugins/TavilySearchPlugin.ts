@@ -1,7 +1,7 @@
-import AgentPluginBase from "../core/plugin/AgentPluginBase";
+import AgentPluginBase from "../core/plugin/agent-plugin-base";
 import axios from "axios";
 import z from "zod";
-import LocalTool from "../core/tool/LocalTool";
+import LocalTool from "../core/tool/local-tool";
 
 export interface TavilySearchOptions {
     query: string,

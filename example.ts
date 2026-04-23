@@ -9,11 +9,11 @@ dotenv.config()
 
 import OpenAI from "openai";
 import CommandLineModelChat from "./src/core/use/chat_model";
-import OpenAIAgent from "./src/core/agent/provider/OpenAIAgent";
+import OpenAIAgent from "./src/core/agent/openai-agent";
 import FormatPrint from "./src/core/use/format_print";
-import L5MemoryOSContextManager from './src/core/context/L5MemoryOSContextManager';
-import OpenAIModel from './src/core/model/provider/OpenAIModel';
-import OpenAIEmbeddingModel from './src/core/model/embedding/provider/OpenAIEmbedding';
+import Layer5MemoryContextManager from './src/core/contextual/manager/layer5-memory-context-manager';
+import OpenAIChatModel from './src/core/model/chat/openai-chat-model';
+import OpenAIEmbeddingModel from './src/core/model/embedding/openai-embedding-model';
 import BashToolkit from './src/internal/Bash';
 import OSToolkit from './src/internal/Os';
 import AgentEmojisPlugin from './src/plugins/AgentEmojisPlugin';
@@ -21,6 +21,7 @@ import { AboutMe } from './src/plugins/AboutMe';
 
 import terminalImage from 'terminal-image';
 import open from 'open';
+import JiebaTokenizer from '@core/tokenizer/jieba-tokenizer';
 
 const zhipuClient = new OpenAI({
   baseURL: process.env.ZHIPU_BASE_URL,
@@ -33,13 +34,15 @@ const mimoClient = new OpenAI({
 
 async function agentic() {
 
-  const consolidateModel = new OpenAIModel('mimo-v2-flash', mimoClient)
+  const consolidateModel = new OpenAIChatModel('mimo-v2-flash', mimoClient)
   const embeddingModel = new OpenAIEmbeddingModel('embedding-3', zhipuClient)
-  const memory = new L5MemoryOSContextManager(consolidateModel, embeddingModel)
+  const memory = new Layer5MemoryContextManager(consolidateModel, embeddingModel)
+
+  memory.memorySearchTokenizer = new JiebaTokenizer()
 
   //内置插件-关于你的信息
   const aboutme = new AboutMe({
-    name: "你的用户名",
+    name: "name",
     age: 19
   })
   //表情包插件
@@ -60,18 +63,14 @@ async function agentic() {
     .config({
       enableSubAgent: true
     })
-    .usePlugin(aboutme, emoji)
+    .usePlugin(emoji,aboutme)
     .on('subAgentCreate', console.log)
     .on('subAgentComplete', console.log)
     .ready()
 
   agent.on('toolCallResult', FormatPrint.printToolCallResult)
-  agent.modelToolCallInterceptor = (tool, name, args) => {
-    return tool
-  }
 
   new CommandLineModelChat(agent)
 
 }
-
 agentic()

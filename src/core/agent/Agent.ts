@@ -2,20 +2,18 @@ import EventEmitter from "events";
 import { Marisa } from "../../types/marisa";
 import { StdioServerParameters } from "@modelcontextprotocol/sdk/client/stdio.js";
 import OpenAI from "openai";
-import Model from "../model/Model";
-import MCPToolkit from "../mcp/MCPToolkit";
+import ChatModel from "../model/chat/chat-model";
+import MCPToolGroup from "../mcp/mcp-tool-group";
 import AgentSkills from "../skill/AgentSkills";
-import { ModelContextManager } from "../context/ModelContextManager";
-import VecStoreContextManager from "../context/VecStoreContextManager";
-import EmbeddingModel from "../model/embedding/EmbeddingModel";
-import BasicContextManager from "../context/BasicContextManager";
-import VectorStore from "../vecstore/VectorStore";
+import { ModelContextManager } from "../contextual/manager/model-context-manager";
+import EmbeddingModel from "../model/embedding/embedding-model";
+import BasicContextManager from "../contextual/manager/basic-context-manager";
 import fs from 'fs'
-import SubAgentManager from "./SubAgentManager";
+import SubAgentManager from "./subagent/sub-agent-manager";
 import path from "path";
-import ScheduleManager from "./Schedule";
-import AgentPluginBase from "../plugin/AgentPluginBase";
-import PluginInstaller from "../plugin/PluginInstaller";
+import ScheduleManager from "./schedule/schedule";
+import AgentPluginBase from "../plugin/agent-plugin-base";
+import PluginInstaller from "../plugin/plugin-installer";
 
 interface AgentEvents {
     create: [],
@@ -45,7 +43,7 @@ export default abstract class Agent extends EventEmitter<AgentEvents> {
     protected workspace: string = path.resolve('./workspace')
     protected client: OpenAI
     protected chatModelName: string = ''
-    protected chatModel: Model
+    protected chatModel: ChatModel
     protected agentMCPServers = new Map<string, (StdioServerParameters | URL)>()
     protected agentTools: Marisa.Tool.AnyTool[] = []
     protected agentToolkits: Marisa.Tool.AnyToolkit[] = []
@@ -84,13 +82,7 @@ export default abstract class Agent extends EventEmitter<AgentEvents> {
 
     //不同平台自行实现
     protected abstract createEmbeddingModel(client: OpenAI, modelName: string, dimonsion: number): EmbeddingModel
-    protected abstract createChatModel(client: OpenAI, modelName: string): Model
-
-    public useVectorContext(embeddingModelName: string, dimonsion: number = 512, vectorStore?: VectorStore<any>, newClient?: OpenAI) {
-        const embeddingModel = this.createEmbeddingModel(newClient || this.client, embeddingModelName, dimonsion)
-        this.modelContextManager = new VecStoreContextManager(embeddingModel, dimonsion, vectorStore, 5, this.modelSessions)
-        return this
-    }
+    protected abstract createChatModel(client: OpenAI, modelName: string): ChatModel
 
     public config(config: Partial<AgentConfig>) {
         this.agentConfig = { ...this.agentConfig, ...config }
@@ -142,7 +134,6 @@ export default abstract class Agent extends EventEmitter<AgentEvents> {
     public usePlugin(...pluginClass: (AgentPluginBase)[]) {
         for (const pclass of pluginClass) {
             const name = pclass.pluginName
-            console.log(name)
             if (this.agentPlugins.has(name)) {
                 console.warn(`plugin ${name} already exists, skipped`)
                 continue
@@ -175,7 +166,7 @@ export default abstract class Agent extends EventEmitter<AgentEvents> {
         return this
     }
 
-    public async ready(modelCreateCallback?: (model: Model) => void): Promise<Model> {
+    public async ready(modelCreateCallback?: (model: ChatModel) => void): Promise<ChatModel> {
 
         const model = this.chatModel
         const tools: Marisa.Tool.AnyTool[] = [...this.agentTools]
@@ -190,7 +181,7 @@ export default abstract class Agent extends EventEmitter<AgentEvents> {
         }
 
         for (const [serverName, server] of this.agentMCPServers.entries()) {
-            const mcp = new MCPToolkit(serverName, server)
+            const mcp = new MCPToolGroup(serverName, server)
             const mcptools = await mcp.init()
             this.emit('mcprun', serverName)
             tools.push(...mcptools)
@@ -246,7 +237,7 @@ export default abstract class Agent extends EventEmitter<AgentEvents> {
         return model
     }
 
-    public async pluginInstaller(model: Model, plugin: AgentPluginBase) {
+    public async pluginInstaller(model: ChatModel, plugin: AgentPluginBase) {
 
         const installer = new PluginInstaller(this.workspace)
         const installFunction = plugin.installFunction

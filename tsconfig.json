@@ -25,7 +25,11 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false,
-    "outDir": "dist"
+    "outDir": "dist",
+    "paths": {
+      "@core/*":["./src/core/*"],
+      "@type/*":["./src/types/*"]
+    }
   },
-  "include": ["./src","example.ts"]
+  "include": ["./src","example.ts"],
 }
