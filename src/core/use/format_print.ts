@@ -38,7 +38,7 @@ export default class FormatPrint {
         }
         let cvs = chalk.bold.greenBright(`工具调用 => ${callName}(${toPythonLikeFunction.join(',')})`)
         const resultString = JSON.stringify(callResult, null, 4)
-        const head = resultString.split('\n').slice(0, 5).join('\n')
+        const head = resultString.slice(0,40)
         const cvr = chalk.gray(`调用结果 \n${head}`)
         process.stdout.write(cvs)
         process.stdout.write('\n')

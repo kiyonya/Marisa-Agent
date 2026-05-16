@@ -2,7 +2,7 @@ import z from "zod";
 import chalk from "chalk";
 import path from "path";
 import { writeFileSync } from "fs";
-import { readFileSync } from "fs-extra";
+import { existsSync, readFileSync } from "fs-extra";
 import crypto from 'crypto'
 
 import { Marisa } from "@type/marisa";
@@ -19,6 +19,7 @@ import { HybridStoreQueryResult } from "@core/store/impl/result";
 import BaseHybridAlgorithm from "@core/store/hybrid-algorithm/base-hybrid-algorithm";
 import HybridAlgorithm from "@core/store/hybrid-algorithm/hybrid-algorithm";
 import Tokenizer from "@core/tokenizer/tokenizer";
+import DynamicTool from "@core/tool/dynamic-tool";
 
 type AllowStoreRole = 'user' | 'assistant' | 'developer'
 
@@ -79,7 +80,7 @@ export default class Layer5MemoryContextManager extends ModelContextManager {
     private embeddingModel: EmbeddingModel | null = null
     private consolidateChatModel: ChatModel | null = null
     private hybridStore: HybridStore<Metadata>
-    private injectLoadCategoryMemoryToolName: string = 'load_category_memory'
+    private injectLoadMemoryToolName: string = 'load_category_memory'
     private injectSearchMemoryToolName: string = 'search_memory'
 
     public config?: Layer5MemoryConfig
@@ -111,7 +112,7 @@ export default class Layer5MemoryContextManager extends ModelContextManager {
         }
 
         const injectTools = this.createModelInjectTools()
-        this.injectModelConstantTool(...injectTools)
+        this.injectModelTool(...injectTools)
 
         const pendingSessions = this.readPendingSessions()
         if (pendingSessions.length) {
@@ -120,25 +121,86 @@ export default class Layer5MemoryContextManager extends ModelContextManager {
         }
     }
 
+    private createModelInjectTools(): Marisa.Tool.AnyToolParam[] {
+
+        const loadMemoryDynamicTool = new DynamicTool<{ type: MemoryCategoryAllowedType, name: string }>(this.injectLoadMemoryToolName, () => {
+            const currentMemories = this.readCategoryMemoryMetadatas()
+
+            let currentMemoryPrompt = ""
+            for (const [cate, metadatas] of Object.entries(currentMemories)) {
+                currentMemoryPrompt += `Type: ${cate}:\n`
+                for (const meta of metadatas) {
+                    currentMemoryPrompt += `- ${meta.name}:${meta.description}\n`
+                }
+            }
+
+            const toolDescription = `Load Memory\nWhen user talk something relevant to any memory in Available Memory List Below,use this tool to load it into current conversation,so that you can talk to the user more intellience\n\nImportant:\n- you need provide the memory type and memory name to load.\n- you can just load the memory in Available Memory List Below.\n- the tool will return "no such memory" when the memory doesn't exists or cannot be read,dont call this tool again,just continue your conversation or end the coversation!\n\nAvailable Memory:\n${currentMemoryPrompt}`
+
+            const tool = new LocalTool<{ type: MemoryCategoryAllowedType, name: string }>(this.injectLoadMemoryToolName, toolDescription, ({ type, name }) => {
+                if (!type || !name) {
+                    throw new Error("Invalid Params")
+                }
+                const cateMemoryDir = this.getWorkspace('memories/categories')
+                const memoryPath = path.join(cateMemoryDir, `${type}/${name}.json`)
+                if (!existsSync(memoryPath)) {
+                    return "no such memory"
+                }
+                const memory: CategoryMemory = JSON.parse(readFileSync(memoryPath, 'utf-8'))
+                return `Memory ${type}:${name}\n\n${memory.content}`
+            }, {
+                type: z.enum(Layer5MemoryContextManager.memoryCategories),
+                name: z.string(),
+            })
+
+            return tool
+        })
+
+        const searchMemoryToolDescription = `Search Relevant Memories By Keywords\nIf you need to find some memory you need,provide an array of keywords and call this tool.\n\nImportant:\n- You need provide at least 1 query keywords to search\n- When no relavant memory,you can ask user about it or just continue the conversation,dont call this tools with same keywords again!\n- The tool will also return relavent memory file if matches,you can call **${this.injectLoadMemoryToolName}** to load it into your conversation if needed`
+
+
+        const searchMemoryTool = new LocalTool<{ query: string[] }>(this.injectSearchMemoryToolName, searchMemoryToolDescription, async ({ query }): Promise<string> => {
+
+            console.log(chalk.bgBlue.white(`模型查询关键词：${query.join(',')}`))
+
+            const matchHybridResult = await this.querySession(query.join(' '))
+            const matchCategoryMemory = await this.queryCategoryMemory(query)
+            if (!matchHybridResult.length && !matchCategoryMemory.length) {
+                return 'No Relavant Memory,Just continue your conversation or ask user about it';
+            }
+
+            let dbMemories: string = matchHybridResult.length ? `
+            ## Memories Maybe Relavant:\n ${matchHybridResult.map(i => `- role:${i.role}  time:${this.semantifyTimestamp(i.time)}  content:${i.content}\n`).join('')}` : '';
+
+            let recommendCategoryMemories = matchCategoryMemory.length ? `
+            ## Memory File Matches:\n${matchCategoryMemory.map(i => `- 记忆类型:${i.type}  记忆名称:${i.name}\n`)}` : '';
+
+            const result = `Here is the memories relavant to your query,You can use it if is suitable：\n\n${dbMemories}\n\n${recommendCategoryMemories}`
+            return result
+
+        }, {
+            query: z.array(z.string()).describe('query keywords array')
+        })
+        return [loadMemoryDynamicTool, searchMemoryTool]
+    }
+
     public override async put(session: Marisa.Chat.Completion.CompletionSession, withHistory?: Marisa.Chat.Completion.CompletionSession[], sessionPutCallback?: () => void): Promise<any> {
         const copySession = deepClone(session)
         this.addSession(copySession)
         this.addPendingSession(copySession)
 
         Promise.resolve().then(() => this.insertSession(copySession)).catch((error) => { })
-
         sessionPutCallback && sessionPutCallback()
+        this.emit('sessionPut', copySession)
     }
 
     public override async query(userPrompt: string): Promise<[sessions: Marisa.Chat.Completion.CompletionSession[], promptAddition: string]> {
         const hotSessions = this.filterSessions(this.config?.hotMemoryLength ?? 5, this.config?.simplifyHotMemoryLength ?? 3)
 
         let metadatas: Metadata[] = await this.querySession(userPrompt) || []
-
         console.log(chalk.bgBlue.white(`向量与查询数据库找到 ${metadatas.length} 条有关记忆`))
 
         metadatas = metadatas.map(i => ({
-            content: `[这条消息是一条历史消息，仅供参考]${i.content}`,
+            content: `[这条消息是一条历史消息，仅供参考，当用户表示我想要做某件事的时候，不要根据这条历史消息决定用户当前要做的事情]${i.content}`,
             role: i.role,
             time: i.time
         }))
@@ -146,17 +208,6 @@ export default class Layer5MemoryContextManager extends ModelContextManager {
         const relevantContextSession = this.createEmptySession()
         const relevantContextMessages = metadatas.map(this.releventToMessage)
         relevantContextSession.messages = relevantContextMessages.filter(i => i !== null)
-
-        const categoryMemorySystemPrompt = `
-        ## 你可以使用CateMemory，也就是分类存储好的记忆来辅助你进行回答，如果你需要使用，请调用工具函数${this.injectLoadCategoryMemoryToolName}来读取对应的子记忆内容，调用时请传入type和name来读取对应的子记忆内容。
-        1. CateMemory类型包括用户记忆（user）、反馈记忆（feedback）和参考记忆（reference）。用户记忆包含用户的个人信息、兴趣爱好、习惯等；反馈记忆包含用户对产品或服务的评价、建议等；参考记忆包含用户提供的链接、文档等参考资料。
-        2. 当你需要获取某个子记忆的内容时，你可以调用工具函数${this.injectLoadCategoryMemoryToolName}，传入type和name来读取对应的子记忆内容。
-        3. 你需要根据上下文来判断是否需要使用CateMemory，以及使用哪个CateMemory。`
-
-        const categoryMemoryIndex = this.buildMemoryCategoriesIndex()
-        const categoryMemoryIndexPrompt: string = !categoryMemoryIndex ? '## 当前还没有记忆索引' : `## 当前的记忆索引有\n${categoryMemoryIndex}\n使用load_category_memory来加载`;
-
-        const searchMemorySystemPrompt = `你可以使用${this.injectSearchMemoryToolName}工具函数来搜索相关的记忆内容，调用时请传入一个查询字符串数组，系统会返回相关的记忆内容。你需要根据上下文来判断是否需要使用${this.injectSearchMemoryToolName}工具函数，以及如何构造查询。`
 
         //inject long term
         let longtermMemorySystemPrompt: string | null = null
@@ -172,7 +223,7 @@ export default class Layer5MemoryContextManager extends ModelContextManager {
             relevantContextInjectPrompt = `## 找到以下有关的记忆供参考\n ${relevantContextMessages.map(m => JSON.stringify(m)).join('\n')}`
         }
 
-        const systemPromptAddition: string = [categoryMemorySystemPrompt, categoryMemoryIndexPrompt, searchMemorySystemPrompt, longtermMemorySystemPrompt, relevantContextInjectPrompt].filter(i => i !== null).join('\n\n')
+        const systemPromptAddition: string = [longtermMemorySystemPrompt, relevantContextInjectPrompt].filter(i => i !== null).join('\n\n')
 
         const querySessions = [...hotSessions]
         if (relevantContextMessages.length) {
@@ -236,10 +287,13 @@ export default class Layer5MemoryContextManager extends ModelContextManager {
     }
 
     private async consolidate(sessions: Marisa.Chat.Completion.CompletionSession[]): Promise<void> {
-        const metadatas = sessions.map(this.extractMessages).flat()
+
         if (this.consolidateChatModel) {
+            const metadatas = sessions.map(this.extractMessages).flat()
             await this.updateCategoryMemory(this.consolidateChatModel, metadatas)
         }
+
+        this.emit('consolidated', sessions)
     }
 
     //insert
@@ -309,9 +363,9 @@ export default class Layer5MemoryContextManager extends ModelContextManager {
         }
 
         const vectorQueryResult: HybridStoreQueryResult<Metadata>[] = (queryVector) ? await this.hybridStore.queryVector(queryVector) : []
-
         const keywordQueryResult: HybridStoreQueryResult<Metadata>[] = await this.hybridStore.queryKeyword(query)
-        const limit = this.config?.queryMemoryLength ?? 15
+
+        const limit = this.config?.queryMemoryLength ?? 5
 
         let hybrid: HybridStoreQueryResult<Metadata>[] = []
 
@@ -360,16 +414,17 @@ export default class Layer5MemoryContextManager extends ModelContextManager {
 
         const categoryMemoryUpdates: { type: MemoryCategoryAllowedType, name: string, subMemory: CategoryMemory }[] = []
 
-        const updateToolDescription = `创建或者更新记忆，如果你需要操作的记忆已经存在，你需要先调用read_memory工具函数读取原有的内容，并且在原有内容的基础上进行更新，而不是直接覆盖原有内容。你需要确保更新后的内容能够反映出新的信息，同时保留原有内容中有价值的信息。`
+        const updateToolDescription = `Create or update a memory. If the memory to be operated on already exists, you must first call the read_memory tool function to read the original content, and update it based on the original content rather than directly overwriting it. You need to ensure that the updated content reflects the new information while retaining the valuable information from the original content.`
 
-        const readToolDescription = `读取记忆，你需要提供记忆的类型和名字来读取对应的子记忆内容。如果记忆不存在会返回null。`
+        const readToolDescription = `Read memory. You need to provide the memory type and name to read the corresponding sub-memory content. If the memory does not exist, it will return null.`
 
         const updateTool = new LocalTool<{ type: MemoryCategoryAllowedType, name: string, description: string, content: string }>('create_or_update_memory', updateToolDescription, ({ type, name, description, content }) => {
             const metadata: CategoryMemoryMetadata = {
                 type: type,
                 description: description || '',
                 time: Date.now(),
-                name: name
+                name: name,
+                keywords:[]
             }
             const subMemory: CategoryMemory = {
                 metadata: metadata,
@@ -612,41 +667,5 @@ export default class Layer5MemoryContextManager extends ModelContextManager {
         return null
     }
 
-    private createModelInjectTools() {
-        const loadCategoryMemoryTool = new LocalTool<{ type: MemoryCategoryAllowedType, name: string }>(this.injectLoadCategoryMemoryToolName, '加载类型记忆文件', ({ type, name }) => {
-            const data = this.readCategoryMemory(type, name)
-            if (data) { return data }
-            else { return '当前记忆是不存在的' }
-        }, {
-            type: z.enum(Layer5MemoryContextManager.memoryCategories),
-            name: z.string(),
-        })
-
-        const searchMemoryTool = new LocalTool<{ query: string[] }>(this.injectSearchMemoryToolName, '根据关键词搜索相关记忆', async ({ query }): Promise<string> => {
-
-            console.log(chalk.bgBlue.white(`模型查询关键词：${query.join(',')}`))
-
-            const matchHybridResult = await this.querySession(query.join(' '))
-            const matchCategoryMemory = await this.queryCategoryMemory(query)
-            if (!matchHybridResult.length && !matchCategoryMemory.length) {
-                return '没有找到相关的记忆，你现在需要去询问用户相关的内容活着继续对话，用户的回答会被记录，这样你下次就可以搜索到相关记忆了，请不要调用工具去盲目查找！';
-            }
-
-            let dbMemories: string = matchHybridResult.length ? `
-            ## 数据库相关记忆\n 
-            ${matchHybridResult.map(i => `- 记忆角色:${i.role}  记忆时间:${this.semantifyTimestamp(i.time)}  记忆内容:${i.content}\n`).join('')}` : '';
-
-            let recommendCategoryMemories = matchCategoryMemory.length ? `
-            ## 另外找到可能相关的类型记忆，你可以使用${this.injectLoadCategoryMemoryToolName}工具调用查看
-            ${matchCategoryMemory.map(i => `- 记忆类型:${i.type}  记忆名称:${i.name}\n`)}` : '';
-
-            const result = `根据你的查询，以下是找到的相关记忆：\n\n${dbMemories}\n\n${recommendCategoryMemories}`
-            return result
-
-        }, {
-            query: z.array(z.string()).describe('你需要查询的查询字符串数组')
-        })
-        return [loadCategoryMemoryTool, searchMemoryTool]
-    }
 }
 

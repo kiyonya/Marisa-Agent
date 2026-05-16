@@ -1,5 +1,7 @@
 {
   "compilerOptions": {
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata":true,
     // Environment setup & latest features
     "lib": ["ESNext"],
     "target": "ESNext",

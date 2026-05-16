@@ -2,7 +2,7 @@ import { load } from "sqlite-vec"
 import SqliteDatabase from "../../utils/sqlite-store"
 
 type Tables = ['common','content_vector','content_fts5']
-type Stmts = ['insert_common','insert_vector','delete','query_bm25','query_vector']
+type Stmts = ['insert_common','insert_vector','delete','query_bm25','query_vector','is_uuid_stored']
 type Triggers = ['common_insert','common_delete']
 
 export interface HybridQueryRow {
@@ -92,9 +92,13 @@ export default class SqliteHybridStoreDatabase extends SqliteDatabase<Tables,Stm
                     v.distance
                 FROM content_vector v
                 INNER JOIN common c ON c.rowid = v.rowid
-                WHERE v.embedding MATCH $vector
+                WHERE v.embedding MATCH $vector AND v.k = $limit
                 ORDER BY v.distance ASC
                 LIMIT $limit
+                `,
+
+                is_uuid_stored:`
+                SELECT EXISTS(SELECT 1 FROM common WHERE uuid = $uuid) as exist;
                 `
             }
         },(db=>load(db)))

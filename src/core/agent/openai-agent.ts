@@ -6,12 +6,12 @@ import OpenAIChatModel from "../model/chat/openai-chat-model";
 import OpenAIEmbeddingModel from "../model/embedding/openai-embedding-model";
 
 export default class OpenAIAgent extends Agent {
-    constructor(chatModelName: string, openaiClient?: OpenAI) {
+    constructor(workspace:string,chatModelName: string, openaiClient?: OpenAI) {
         const client = openaiClient || new OpenAI()
-        super(chatModelName, client)
+        super(workspace,chatModelName, client)
     }
     protected override createChatModel(client: OpenAI, modelName: string): ChatModel {
-        const openaiChatModel = new OpenAIChatModel(modelName, client)
+        const openaiChatModel = new OpenAIChatModel(this.workspace,modelName, client)
         return openaiChatModel
     }
     protected override createEmbeddingModel(client: OpenAI, modelName: string, dimonsion: number): EmbeddingModel {

@@ -5,10 +5,19 @@ import { StdioServerParameters } from "@modelcontextprotocol/sdk/client/stdio.js
 import MCPTool from "../core/tool/mcp-tool";
 import LocalTool from "../core/tool/local-tool";
 import ToolGroup from "../core/tool/tool-group";
+import DynamicTool from "@core/tool/dynamic-tool";
 
 export namespace Marisa {
 
     export namespace Model {
+
+        export interface ModelInfo {
+            modelName: string
+        }
+
+        export interface ChatModelInfo extends ModelInfo {
+            completionOptions: ModelCompletionOptions
+        }
 
         export interface ModelCompletionOptions {
             modelName?: string,
@@ -18,8 +27,7 @@ export namespace Marisa {
             promptCacheRetention?: 'in-memory' | '24h' | null
             toolChoice?: | 'none' | 'auto' | 'required'
             parallelToolCalls?: boolean,
-            simplifyHistorySession?: boolean,
-            enableProgressiveTools?:boolean
+            simplifyHistorySession?: boolean
         }
 
         export interface ModelOptions {
@@ -27,7 +35,7 @@ export namespace Marisa {
             modelToolMap?: Map<string, Marisa.Tool.AnyTool>,
             modelContextDumpFile?: string,
             modelRolePrompt?: string,
-            modelSkills?: Map<string, Marisa.Skill.ModelSkillMetadata>,
+            modelSkills?: Map<string, Marisa.Skill.SkillFrontmatter>,
             modelSkillLoadTool?: LocalTool<{ skillName: string }>
         }
 
@@ -40,6 +48,10 @@ export namespace Marisa {
 
         export interface OpenAIModelOptions extends ModelOptions {
             client: OpenAI
+        }
+
+        export interface ModelInterceptors {
+            userPromptInput: { inputMessages: Marisa.Chat.Completion.CompletionMessage[] },
         }
 
     }
@@ -72,16 +84,19 @@ export namespace Marisa {
                     content: string;
                     role: 'system';
                     name?: string;
+                    temporary?:boolean
                 }
                 export interface ChatCompletionDeveloperMessage extends Message {
                     content: string
                     role: 'developer';
                     name?: string;
+                    temporary?:boolean
                 }
                 export interface ChatCompletionUserMessage extends Message {
                     content: string
                     role: 'user';
                     name?: string;
+                    temporary?:boolean
                 }
                 export interface ChatCompletionAssistantMessageParam extends Message {
                     role: 'assistant';
@@ -91,13 +106,15 @@ export namespace Marisa {
                     name?: string;
                     refusal?: string | null;
                     tool_calls?: Array<OpenAIChatCompletionMessageToolCall>;
-                    reasoning_content?: string
+                    reasoning_content?: string,
+                    temporary?:boolean
                 }
                 export interface ChatCompletionToolCallMessage extends Message {
                     content: string
                     role: 'tool';
                     tool_call_id: string;
-                    is_error?:boolean
+                    is_error?: boolean,
+                    temporary?:boolean
                 }
                 export type OpenAIChatCompletionMessageToolCall =
                     | ChatCompletionMessageFunctionToolCall
@@ -123,7 +140,7 @@ export namespace Marisa {
                 total_tokens: number;
                 completion_tokens_details?: CompletionTokensDetails;
                 prompt_tokens_details?: PromptTokensDetails;
-                cache_tokens?:number
+                cache_tokens?: number
             }
 
             export interface CompletionTokensDetails {
@@ -164,6 +181,7 @@ export namespace Marisa {
     export namespace Tool {
 
         export type AnyTool = MCPTool<any> | LocalTool<any>
+        export type AnyToolParam = AnyTool | DynamicTool<any>
 
         export type AnyToolkit = ToolGroup<any>
 
@@ -186,10 +204,13 @@ export namespace Marisa {
 
         export interface ModelSkills extends Record<string, string> { }
 
-        export interface ModelSkillMetadata {
+        export interface SkillFrontmatter {
             name: string,
-            path: string,
             description: string,
+            license?: string,
+            metadata?: Record<any, any>,
+            compatibility?: string,
+            "allowed-tools"?: string[]
         }
     }
 
@@ -248,7 +269,7 @@ export namespace Marisa {
             modelCreate: []
         }
 
-        export interface Model  {
+        export interface Model {
             toolCall: [name: string, arguments: Record<string, any>],
             toolCallResult: [name: string, arguments: Record<string, any>, result: any],
             toolCallError: [name: string, arguments: Record<string, any>, error: any],
@@ -259,12 +280,16 @@ export namespace Marisa {
             sessionPut: [session: Marisa.Chat.Completion.CompletionSession],
             sessionQuery: [query: string, sessions: Marisa.Chat.Completion.CompletionSession[], promptAddition: string, tip: string],
             sessionSave: [file: string],
-            consolidated: [session: Marisa.Chat.Completion.CompletionSession],
+            consolidated: [sessions: Marisa.Chat.Completion.CompletionSession[]],
             consolidateSave: []
+
+            summarizeSuccess:[completion:Marisa.Chat.Completion.CompletionSession,updateKnowledgeCount?:number,updateMemoryCount?:number]
+            summarizeFail:[error?:Error | string]
+            summarizeStart:[]
         }
 
         export interface Model extends ModelContextManager {
-           
+
         }
     }
 

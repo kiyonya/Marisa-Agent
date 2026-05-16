@@ -15,6 +15,10 @@ export default class SqliteHybridStore<Metadata extends Record<any, any> = any> 
     public override async insert(insertItem: HybridStoreInsertItem): Promise<void> {
         try {
             const transaction = this.db.getDB().transaction(() => {
+                const isExists = this.db.stmt('is_uuid_stored').get({
+                    $uuid: insertItem.uuid
+                }) as { exist: number }
+                if (isExists.exist) { return }
                 const now = Date.now()
                 const common = this.db.stmt('insert_common').run({
                     $uuid: insertItem.uuid,
@@ -43,6 +47,10 @@ export default class SqliteHybridStore<Metadata extends Record<any, any> = any> 
         try {
             const transaction = this.db.getDB().transaction(() => {
                 for (const insertItem of insertItems) {
+                    const isExists = this.db.stmt('is_uuid_stored').get({
+                        $uuid: insertItem.uuid
+                    }) as { exist: number }
+                    if (isExists.exist) { continue }
                     const now = Date.now()
                     const common = this.db.stmt('insert_common').run({
                         $uuid: insertItem.uuid,
@@ -77,7 +85,7 @@ export default class SqliteHybridStore<Metadata extends Record<any, any> = any> 
     public override async queryKeyword(query: string, limit: number = 20): Promise<HybridStoreQueryResult<Metadata>[]> {
         try {
             const rows = (this.db.stmt('query_bm25').all({
-                $query: query,
+                $query: this.escapeFts5Query(query),
                 $limit: limit
             }) || []) as HybridQueryRow[]
             const results: HybridStoreQueryResult<Metadata>[] = rows.map(i => ({ ...i, metadata: i.metadata ? JSON.parse(i.metadata) as Metadata : undefined }))
@@ -97,7 +105,15 @@ export default class SqliteHybridStore<Metadata extends Record<any, any> = any> 
             const results: HybridStoreQueryResult<Metadata>[] = rows.map(i => ({ ...i, metadata: i.metadata ? JSON.parse(i.metadata) as Metadata : undefined }))
             return results
         } catch (error) {
+            console.error(error)
             return []
         }
+    }
+
+    private escapeFts5Query(query: string): string {
+        if (query.match(/[\s"*():<>-]/)) {
+            return `"${query.replace(/"/g, '""')}"`;
+        }
+        return query;
     }
 }

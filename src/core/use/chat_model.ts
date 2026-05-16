@@ -1,7 +1,7 @@
-import OpenAIModel from "../model/provider/OpenAIModel";
+
 import readline from 'readline'
 import chalk from "chalk";
-import Model from "../model/Model";
+import Model from "@core/model/chat/chat-model";
 
 export default class CommandLineModelChat {
     private model:Model
@@ -31,7 +31,9 @@ export default class CommandLineModelChat {
                             process.stdout.write(chalk.bold.yellow(delta));
                         }
                     );
-                    console.log(chalk.blue(`使用token:${response?.usage.total_tokens}`))
+                    if(response!== 'cmd'){
+                        console.log(chalk.blue(`使用token:${response?.usage?.total_tokens}`))
+                    }
                 } catch (error) {
                     console.error('错误:', error);
                 }

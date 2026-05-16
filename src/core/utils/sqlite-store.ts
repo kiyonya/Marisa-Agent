@@ -49,6 +49,7 @@ export default abstract class SqliteDatabase<TableList extends Array<string> = [
                     const ns = this.db.prepare(stmtsql as string)
                     this.stmts.set(stmtName, ns)
                 } catch (error) {
+                    console.error(error)
                 }
             }
         }

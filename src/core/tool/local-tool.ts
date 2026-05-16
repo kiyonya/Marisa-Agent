@@ -3,24 +3,23 @@ import ToolBase from "./tool-base";
 import { z } from 'zod'
 import { Marisa } from "../../types/marisa";
 import Anthropic from "@anthropic-ai/sdk";
+import PermissionAsker from "@core/permission/permission-requestor";
 
 
 type PermissionChecker = () => boolean | Promise<boolean>
 type IPermissions = Record<string, PermissionChecker>
 type NonVoidToolResult<T> = T extends void ? never : T
 
-export default class LocalTool<ToolParams extends Record<string, any> = {}, ToolResult = NonVoidToolResult<any>, Permissions = IPermissions> extends ToolBase<ToolParams, ToolResult, Permissions> {
+export default class LocalTool<ToolParams extends Record<string, any> = {}, ToolResult = NonVoidToolResult<any>> extends ToolBase<ToolParams, ToolResult> {
 
-    protected override executor: ((params: ToolParams, permission: Permissions) => ToolResult | Promise<ToolResult>) | null = null;
+    protected override executor: ((params: ToolParams, permission?: PermissionAsker) => ToolResult | Promise<ToolResult>) | null = null;
     public override toolName: string = '';
     public override description: string = '';
     private paramsSchema: Record<keyof ToolParams, z.ZodTypeAny> | null = null;
     private zodSchema: z.ZodObject<Record<keyof ToolParams, z.ZodTypeAny>> | null = null;
     private returnsSchema?: z.ZodAny
 
-    public permissions: Permissions = {} as Permissions
-
-    constructor(toolName: string, description: string, executor: (params: ToolParams, permission: Permissions) => ToolResult | Promise<ToolResult>, paramsSchema: Record<keyof ToolParams, z.ZodTypeAny>, returnsSchema?: z.ZodAny) {
+    constructor(toolName: string, description: string, executor: (params: ToolParams, permission?: PermissionAsker) => ToolResult | Promise<ToolResult>, paramsSchema: Record<keyof ToolParams, z.ZodTypeAny>, returnsSchema?: z.ZodAny) {
         super()
         this.toolName = toolName;
         this.description = description;
@@ -30,19 +29,15 @@ export default class LocalTool<ToolParams extends Record<string, any> = {}, Tool
         this.returnsSchema = returnsSchema
     }
 
-    public setPermission(permission: Permissions) {
-        this.permissions = permission
-    }
-
-    public async execute(params: ToolParams): Promise<ToolResult> {
+    public async execute(params: ToolParams, permissionAsker?: PermissionAsker): Promise<ToolResult> {
         if (!this.executor) {
             throw new Error('Executor not initialized');
         }
         if (this.zodSchema) {
             const validatedParams = this.zodSchema.parse(params) as ToolParams;
-            return await this.executor(validatedParams, this.permissions);
+            return await this.executor(validatedParams, permissionAsker);
         }
-        return await this.executor(params, this.permissions);
+        return await this.executor(params, permissionAsker);
     }
 
     public override buildAsOpenAI(): Marisa.Chat.Completion.CompletionTool {

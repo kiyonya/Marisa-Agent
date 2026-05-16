@@ -1,22 +1,18 @@
-import OpenAI from "openai"
+
 import { Marisa } from "../../../types/marisa"
-import ModelSessionView from "../../model/chat/model-session-view"
-import { ensureDirSync, existsSync, readdirSync, readFile, readFileSync, writeFileSync } from "fs-extra"
+import { existsSync } from "fs-extra"
 import path from "path"
-import { getWorkspacePath } from "../../utils/workspace"
 import ChatModelComponent from "../../model/chat/chat-model-component"
 import JSONL from "../../utils/jsonl"
-import SqliteVecStore from "../../store/vector/sqlite-vector-store"
-import SqliteBM25MessageStore from "../../store/messages/sqlite-bm25-message-store"
-import SqliteHybridStore from "../../store/hybrid/sqlite-hybrid-store"
 
-export type MemoryCategoryAllowedType = 'user' | 'feedback' | 'reference'
+export type MemoryCategoryAllowedType = 'user' | 'feedback' | 'reference' | 'experience'
 
 export interface CategoryMemoryMetadata {
     type: MemoryCategoryAllowedType,
     description: string,
     time: number,
-    name: string
+    name: string,
+    keywords: string[]
 }
 
 export interface CategoryMemory {
@@ -50,90 +46,10 @@ export interface CategoryMemory {
  */
 abstract class ModelContextIOEssential extends ChatModelComponent<Marisa.Events.ModelContextManager> {
 
-    protected static memoryCategories: MemoryCategoryAllowedType[] = ['user', 'feedback', 'reference']
+    protected static memoryCategories: MemoryCategoryAllowedType[] = ['user', 'feedback', 'reference', 'experience']
+
     constructor() {
-        super(['consolidateSave', 'consolidated', 'sessionPut', 'sessionQuery', 'sessionSave'])
-    }
-
-    //longterm
-    protected readLongtermMemory(): string {
-        const memoriesDir = this.getWorkspace('memories')
-        const longtermMemoryFile = path.join(memoriesDir, 'longterm.md')
-        if (existsSync(longtermMemoryFile)) {
-            return readFileSync(longtermMemoryFile, 'utf-8')
-        }
-        else {
-            return ""
-        }
-    }
-
-    protected updateLongtermMemory(content: string): void {
-        const memoriesDir = this.getWorkspace('memories')
-        const longtermMemoryFile = path.join(memoriesDir, 'longterm.md')
-        writeFileSync(longtermMemoryFile, content, 'utf-8')
-    }
-
-    //category
-    protected readCategoryMemoryMetadatas(): Partial<Record<MemoryCategoryAllowedType, CategoryMemoryMetadata[]>> {
-        const result: Partial<Record<MemoryCategoryAllowedType, CategoryMemoryMetadata[]>> = {}
-        const submemoryDir = this.getWorkspace('memories/categories')
-        for (const dirname of ModelContextIOEssential.memoryCategories) {
-            const dir = path.join(submemoryDir, dirname)
-            if (existsSync(dir)) {
-                const submemoryMetadatas: CategoryMemoryMetadata[] = []
-                const items = readdirSync(dir).filter(i => path.extname(i) === '.json').map(i => path.join(dir, i))
-                for (const item of items) {
-                    try {
-                        const data = JSON.parse(readFileSync(item, 'utf-8')) as CategoryMemory
-                        const metadata = data.metadata
-                        if (!data.metadata) { continue }
-                        submemoryMetadatas.push(metadata)
-                    } catch (error) {
-
-                    }
-                }
-                if (submemoryMetadatas.length) {
-                    result[dirname] = submemoryMetadatas
-                }
-            }
-        }
-        return result
-    }
-
-    protected readCategoryMemory(type: MemoryCategoryAllowedType, name: string): string | null {
-        const memoryPath = path.join(this.getWorkspace('memories/categories'), `${type}/${name}.json`)
-        if (existsSync(memoryPath)) {
-            try {
-                const data = readFileSync(memoryPath, 'utf-8')
-                return data
-            } catch (error) {
-                return null
-            }
-        }
-        return null
-    }
-
-    public createOrUpdateCategoryMemory(type: MemoryCategoryAllowedType, name: string, subMemory: CategoryMemory) {
-        if (type && name) {
-            const memoryPath = path.join(this.getWorkspace('memories/categories'), `${type}/${name}.json`)
-            const dir = path.dirname(memoryPath)
-            ensureDirSync(dir)
-            writeFileSync(memoryPath, JSON.stringify(subMemory, null, 4))
-        }
-    }
-
-    //category - publish
-    public buildMemoryCategoriesIndex(): string {
-        const modelSubMemoryMetadatas = this.readCategoryMemoryMetadatas()
-        let storedSubMemoryNames = ''
-        for (const type in modelSubMemoryMetadatas) {
-            const metadatas = modelSubMemoryMetadatas[type as MemoryCategoryAllowedType] || []
-            storedSubMemoryNames += `### 类型 ${type}\n`
-            for (const metadata of metadatas) {
-                storedSubMemoryNames += `- 记忆名称：${metadata.name},记忆描述：${metadata.description}\n`
-            }
-        }
-        return storedSubMemoryNames
+        super()
     }
 }
 
@@ -141,27 +57,42 @@ export abstract class ModelContextManager extends ModelContextIOEssential {
 
     protected modelSessionWindowLength: number = 20
     protected modelSessions: Marisa.Chat.Completion.CompletionSession[] = []
+    protected registeredTools: Marisa.Tool.AnyToolParam[] = []
 
     constructor(sessions?: Marisa.Chat.Completion.CompletionSession[]) {
         super()
-        const modelSession = (sessions?.length ? sessions : null) || this.readContext() || []
+        const modelSession = (sessions?.length ? sessions : null) || []
         if (modelSession && modelSession.length) {
             const len = modelSession.length
             this.modelSessions = modelSession.slice(len - this.modelSessionWindowLength, len)
         }
     }
 
-    protected addSession(session: Marisa.Chat.Completion.CompletionSession) {
-        session = JSON.parse(JSON.stringify(session))
-        if (this.modelSessions.length >= this.modelSessionWindowLength) {
-            this.modelSessions.shift()
+    protected createAddContextFunction(contextWorkspace: string) {
+        const func = (session: Marisa.Chat.Completion.CompletionSession) => {
+            if (this.modelSessions.length >= this.modelSessionWindowLength) {
+                this.modelSessions.shift()
+            }
+            this.modelSessions.push(session)
+            const contextFile = path.join(contextWorkspace, 'contexts.jsonl')
+            const jsonl = new JSONL<Marisa.Chat.Completion.CompletionSession>()
+            if (existsSync(contextFile)) {
+                jsonl.parseFile(contextFile)
+            }
+            jsonl.add(session)
+            jsonl.toFile(contextFile)
+            this.emit('sessionSave', contextFile)
         }
-        this.modelSessions.push(session)
-        this.saveContext(session)
+        return func
     }
 
-    public abstract put(session: Marisa.Chat.Completion.CompletionSession, withHistory?: Marisa.Chat.Completion.CompletionSession[], sessionPutCallback?: () => void): Promise<any>
-    public abstract query(userPrompt: string): Promise<[sessions: Marisa.Chat.Completion.CompletionSession[], promptAddition: string]>
+    protected loadSessionToContext(contextsWorkspace: string) {
+        const contextFile = path.join(contextsWorkspace, 'contexts.jsonl')
+        if (existsSync(contextFile)) {
+            const sessions = new JSONL<Marisa.Chat.Completion.CompletionSession>().parseFile(contextFile).toArray()
+            this.modelSessions.push(...sessions)
+        }
+    }
 
     public createEmptySession(): Marisa.Chat.Completion.CompletionSession {
         const session: Marisa.Chat.Completion.CompletionSession = {
@@ -177,57 +108,6 @@ export abstract class ModelContextManager extends ModelContextIOEssential {
         return session
     }
 
-    protected createEmptySessionView() {
-        return new ModelSessionView(this.createEmptySession())
-    }
-
-    protected createEmptyVectorStore<Metadata extends Record<string, any>>(dimension: number = 512) {
-        const vecstorePath = path.join(this.getWorkspace('memories/vector'), 'memory_vector.db')
-        return new SqliteVecStore<Metadata>(vecstorePath, dimension)
-    }
-
-    protected createEmptyMessageStore() {
-        const searchDBPath = path.join(this.getWorkspace('memories/search'), 'message_search.db')
-        return new SqliteBM25MessageStore(searchDBPath)
-    }
-
-    protected createEmptyHybridStore<Metadata extends Record<any, any> = any>(dimension: number = 512) {
-        const hybridStorePath = path.join(this.getWorkspace('memories/hybrid'), 'hybrid_store.db')
-        return new SqliteHybridStore<Metadata>(hybridStorePath, dimension)
-    }
-
-    protected createUserMessage(userPrompt: string) {
-        const userMessage: Marisa.Chat.Completion.Messages.ChatCompletionUserMessage = {
-            content: userPrompt,
-            role: 'user',
-            //@ts-ignore
-            cache_control: { "type": "ephemeral" }
-        }
-        return userMessage
-    }
-
-    protected saveContext(session: Marisa.Chat.Completion.CompletionSession) {
-        const workspace = getWorkspacePath('contexts')
-        const contextFile = path.join(workspace, 'contexts.jsonl')
-        const jsonl = new JSONL<Marisa.Chat.Completion.CompletionSession>()
-        if (existsSync(contextFile)) {
-            jsonl.parseFile(contextFile)
-        }
-        jsonl.add(session)
-        jsonl.toFile(contextFile)
-        this.emit('sessionSave', contextFile)
-    }
-
-    protected readContext(): Marisa.Chat.Completion.CompletionSession[] {
-        const workspace = getWorkspacePath('contexts')
-        const contextFile = path.join(workspace, 'contexts.jsonl')
-        if (existsSync(contextFile)) {
-            return new JSONL<Marisa.Chat.Completion.CompletionSession>().parseFile(contextFile).toArray()
-        }
-        else {
-            return []
-        }
-    }
 
     protected getFileDumpDate() {
         const date = new Date()
@@ -290,6 +170,9 @@ export abstract class ModelContextManager extends ModelContextIOEssential {
         return `[${year}-${month}-${day} ${hours}:${minutes}:${seconds}] (${passDays} days ago)`
     }
 
+    protected registerTool(...tools: Marisa.Tool.AnyToolParam[]) {
+        this.registeredTools.push(...tools)
+    }
 
 }
 

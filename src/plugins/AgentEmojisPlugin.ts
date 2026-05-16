@@ -71,7 +71,7 @@ export default class AgentEmojisPlugin extends AgentPluginBase {
                 emojis.set(name, index)
             }
 
-            if(!emojis.size){
+            if (!emojis.size) {
                 return
             }
 
@@ -118,7 +118,7 @@ export default class AgentEmojisPlugin extends AgentPluginBase {
                 }
             )
 
-            installer.registerConstantTool(sendEmojiTool)
+            installer.registerTool(sendEmojiTool)
             installer.registerSystemPrompt(emjoySystemPrompt)
         }
     }

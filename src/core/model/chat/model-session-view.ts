@@ -3,38 +3,117 @@ import { Marisa } from "../../../types/marisa";
 import Anthropic from "@anthropic-ai/sdk";
 
 export default class ModelSessionView {
-    private session: Marisa.Chat.Completion.CompletionSession
+
+    private currentSession: Marisa.Chat.Completion.CompletionSession
+    private historySessions: Marisa.Chat.Completion.CompletionSession[] = []
+    private systemPrompt?: string
     private onSessionUpdateCallback?: Marisa.Chat.Completion.OnSessionUpdateCallback
-    constructor(session: Marisa.Chat.Completion.CompletionSession) {
-        this.session = session
+
+    public get EmptySession():Marisa.Chat.Completion.CompletionSession{
+        return {
+            messages:[],
+            usage:{
+                total_tokens:0,
+                completion_tokens:0,
+                cache_tokens:0,
+                prompt_tokens:0
+            },
+            timestamp:Date.now(),
+            sessionId:Date.now()
+        }
+    }
+
+    get historySession(){
+        return this.historySessions
+    }
+
+    get session(){
+        return this.currentSession
+    }
+
+    get sessionNoTemporary(){
+        const msg = [...this.currentSession.messages.filter(i => i.temporary !== true)]
+        const session: Marisa.Chat.Completion.CompletionSession = {
+            ...this.currentSession,
+            messages: msg
+        }
+        return session
+    }
+
+    constructor(session?: Marisa.Chat.Completion.CompletionSession) {
+        this.currentSession = session || this.EmptySession
+    }
+
+    public setHistorySessions(sessions: Marisa.Chat.Completion.CompletionSession[]) {
+        this.historySessions.push(...sessions)
+    }
+
+    public setSystemPrompt(systemPrompt: string) {
+        if (this.systemPrompt) {
+            throw new Error("Already have system messages")
+        }
+        this.systemPrompt = systemPrompt
+    }
+
+    public pushMessageToCurrentSession(...messages: Marisa.Chat.Completion.CompletionMessage[]) {
+        this.currentSession.messages.push(...messages)
+        if (this.onSessionUpdateCallback) {
+            this.onSessionUpdateCallback(this.currentSession)
+        }
     }
 
     public sessionUpdateIndicator(onSessionUpdateCallback: Marisa.Chat.Completion.OnSessionUpdateCallback) {
         this.onSessionUpdateCallback = onSessionUpdateCallback
     }
 
-    public pushMessage(...messages: Marisa.Chat.Completion.CompletionMessage[]) {
-        this.session.messages.push(...messages)
-        if (this.onSessionUpdateCallback) {
-            this.onSessionUpdateCallback(this.session)
-        }
-    }
-
-    public updateUsage(usage: Marisa.Chat.Completion.CompletionUsage) {
-        this.session.usage = usage
+    public setUsage(usage: Marisa.Chat.Completion.CompletionUsage) {
+        this.currentSession.usage = usage
     }
 
     public getSession() {
-        return this.session
+        return this.currentSession
+    }
+
+    /**
+     * get session without temporary,when model has interceptor,those interceptors might insert some new message into current session,and it will be marked temporary,like 
+     * `<system-remider></system-reminder>`
+     * these messages should never be add into context or any memory system
+     * @returns 
+     */
+    public getNoTemporarySession() {
+        const msg = [...this.currentSession.messages.filter(i => i.temporary !== true)]
+        const session: Marisa.Chat.Completion.CompletionSession = {
+            ...this.currentSession,
+            messages: msg
+        }
+        return session
+    }
+
+    public getHistorySessions(){
+        return [...this.historySessions]
     }
 
     public destory() {
-        this.session.messages = []
+        this.currentSession.messages = []
         this.onSessionUpdateCallback = undefined
     }
 
     public unpackToOpenAIMessages(): OpenAI.Chat.ChatCompletionMessageParam[] {
-        return this.marisaMessagesToOpenAIMessages(this.session.messages.sort((a, b) => a.timestamp - b.timestamp))
+        
+        const historyMessages = this.historySessions.map(i=>i.messages).flat()
+        const historyPart:OpenAI.Chat.ChatCompletionMessageParam[] = []
+        historyPart.push(...this.marisaMessagesToOpenAIMessages(historyMessages))
+
+        const currentPart:OpenAI.Chat.ChatCompletionMessageParam[] = []
+        currentPart.push(...this.marisaMessagesToOpenAIMessages(this.currentSession.messages))
+
+        const systemPart:OpenAI.Chat.ChatCompletionSystemMessageParam = {
+            role:"system",
+            content:this.systemPrompt || ""
+        }
+        const combinedOpenAIMessageList:OpenAI.Chat.ChatCompletionMessageParam[] = [systemPart,...historyPart,...currentPart]
+
+        return combinedOpenAIMessageList
     }
 
     private marisaMessagesToOpenAIMessages(messages: Marisa.Chat.Completion.CompletionMessage[]) {
@@ -51,7 +130,8 @@ export default class ModelSessionView {
                     openaiMessage.push({
                         role: 'developer',
                         content: message.content,
-                        name: message.name
+                        name: message.name,
+
                     })
                     break
                 case 'user':
@@ -65,7 +145,9 @@ export default class ModelSessionView {
                     const assistantMsg: OpenAI.Chat.ChatCompletionAssistantMessageParam = {
                         role: 'assistant',
                         content: message.content,
-                        name: message.name
+                        name: message.name,
+                        //@ts-ignore
+                        reasoning_content: message.reasoning_content
                     }
                     if (message.tool_calls) {
                         assistantMsg.tool_calls = message.tool_calls
@@ -87,7 +169,7 @@ export default class ModelSessionView {
     }
 
     public unpackToAnthropicMessages(): { system: string, messages: Anthropic.Messages.MessageParam[] } {
-        const { system, anthropicMessages } = this.marisaMessagesToAnthropicMessages(this.session.messages.sort((a, b) => a.timestamp - b.timestamp))
+        const { system, anthropicMessages } = this.marisaMessagesToAnthropicMessages(this.currentSession.messages.sort((a, b) => a.timestamp - b.timestamp))
         return { system, messages: anthropicMessages }
     }
 

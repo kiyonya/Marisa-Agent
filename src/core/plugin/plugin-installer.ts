@@ -7,7 +7,6 @@ import { ensureDirSync } from "fs-extra";
 
 export interface PluginInstallResult {
     tools: Marisa.Tool.AnyTool[],
-    constantTools: Marisa.Tool.AnyTool[],
     systemPrompts: string[]
 }
 
@@ -18,7 +17,6 @@ export default class PluginInstaller extends EventEmitter {
     public static pluginName: string = 'plugin'
 
     protected registedTools = new Map<string, Marisa.Tool.AnyTool>()
-    protected registedConstantTools = new Map<string, Marisa.Tool.AnyTool>()
     protected registedMCPServers = new Map<string, (StdioServerParameters | URL)>()
     protected registedSystemPrompts: string[] = []
 
@@ -39,18 +37,6 @@ export default class PluginInstaller extends EventEmitter {
                 continue
             }
             this.registedTools.set(toolName, tool)
-        }
-        return this
-    }
-
-    public registerConstantTool(...tools: Marisa.Tool.AnyTool[]){
-        for (const tool of tools) {
-            const toolName = tool.toolName
-            if (this.registedConstantTools.has(toolName)) {
-                console.log('')
-                continue
-            }
-            this.registedConstantTools.set(toolName, tool)
         }
         return this
     }
@@ -94,18 +80,8 @@ export default class PluginInstaller extends EventEmitter {
                     injectTools.set(name, tool)
                 }
             }
-            if (this.registedConstantTools.size > 0) {
-                for (const [name, tool] of this.registedConstantTools.entries()) {
-                    if (injectTools.has(name) || injectConstantTools.has(name)) {
-                        console.warn(`Tool name conflict: ${name} already exists, the constant tool registered in plugin will be ignored.`)
-                        continue
-                    }
-                    injectConstantTools.set(name, tool)
-                }
-            }
             const result: PluginInstallResult = {
                 tools: Array.from(injectTools.values()),
-                constantTools: Array.from(injectConstantTools.values()),
                 systemPrompts: this.registedSystemPrompts
             }
             if (this.onInstallSuccess) {

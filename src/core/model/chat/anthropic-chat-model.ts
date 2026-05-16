@@ -18,13 +18,13 @@ export default class AnthropicChatModel extends ChatModel {
 
         const completionSystemPrompt = systemPrompt || this.builsDefaultSystemPrompt() || ''
         const currentSessionView = this.createEmptySessionView()
-        currentSessionView.pushMessage({
+        currentSessionView.pushMessageToCurrentSession({
             role: 'system',
             content: completionSystemPrompt,
             timestamp: Date.now()
         })
         const userMessage = this.createUserMessage(prompt)
-        currentSessionView.pushMessage(userMessage)
+        currentSessionView.pushMessageToCurrentSession(userMessage)
         await this._complete(currentSessionView, toolMap)
         const session = currentSessionView.getSession()
         this.onSessionEnd('complete', session)
@@ -91,7 +91,7 @@ export default class AnthropicChatModel extends ChatModel {
                 tool_calls: toolCallCollections,
                 timestamp: Date.now()
             };
-            sessionView.pushMessage(assistantMsg)
+            sessionView.pushMessageToCurrentSession(assistantMsg)
             if (completion.stop_reason === 'tool_use' && toolMap) {
                 for (const toolCallFunctionLike of toolCallCollections) {
                     try {
@@ -106,7 +106,7 @@ export default class AnthropicChatModel extends ChatModel {
                             timestamp: Date.now(),
                             is_error: false
                         }
-                        sessionView.pushMessage(toolCallMessage)
+                        sessionView.pushMessageToCurrentSession(toolCallMessage)
                     } catch (error) {
                         const toolCallErrorMessage: Marisa.Chat.Completion.CompletionMessage = {
                             role: 'tool',
@@ -117,7 +117,7 @@ export default class AnthropicChatModel extends ChatModel {
                             timestamp: Date.now(),
                             is_error: true
                         }
-                        sessionView.pushMessage(toolCallErrorMessage)
+                        sessionView.pushMessageToCurrentSession(toolCallErrorMessage)
                     }
                 }
                 return await this._complete(sessionView, toolMap)
@@ -131,7 +131,7 @@ export default class AnthropicChatModel extends ChatModel {
                     prompt_tokens: anthropicUsage.input_tokens,
                     cache_tokens: anthropicUsage.cache_creation_input_tokens!
                 }
-                sessionView.updateUsage(usage)
+                sessionView.setUsage(usage)
                 return completion
             }
         }
@@ -147,14 +147,14 @@ export default class AnthropicChatModel extends ChatModel {
         const [historySessions, systemPromptAddition] = this.modelContextManager ? await this.modelContextManager.query(prompt) : [[], '']
         systemPrompt += systemPromptAddition
 
-        currentSessionView.pushMessage({
+        currentSessionView.pushMessageToCurrentSession({
             role: 'system',
             content: systemPrompt,
             timestamp: Date.now()
         })
 
         const userMessage = this.createUserMessage(prompt)
-        currentSessionView.pushMessage(userMessage)
+        currentSessionView.pushMessageToCurrentSession(userMessage)
 
         if (onSessionUpdate) {
             currentSessionView.sessionUpdateIndicator(onSessionUpdate)
@@ -162,7 +162,7 @@ export default class AnthropicChatModel extends ChatModel {
 
         const historySessionView = this.createEmptySessionView()
         for (const historySession of historySessions) {
-            historySessionView.pushMessage(...historySession.messages)
+            historySessionView.pushMessageToCurrentSession(...historySession.messages)
         }
 
         await this._invoke(historySessionView, currentSessionView, onSessionUpdate)
