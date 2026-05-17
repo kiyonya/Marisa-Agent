@@ -5,12 +5,9 @@ import { Marisa } from "../../types/marisa";
 import Anthropic from "@anthropic-ai/sdk";
 import PermissionAsker from "@core/permission/permission-requestor";
 
-
 type PermissionChecker = () => boolean | Promise<boolean>
-type IPermissions = Record<string, PermissionChecker>
-type NonVoidToolResult<T> = T extends void ? never : T
 
-export default class LocalTool<ToolParams extends Record<string, any> = {}, ToolResult = NonVoidToolResult<any>> extends ToolBase<ToolParams, ToolResult> {
+export default class LocalTool<ToolParams extends Record<string, any> = {}, ToolResult = string | Record<any,any> | any[] | Symbol > extends ToolBase<ToolParams, ToolResult> {
 
     protected override executor: ((params: ToolParams, permission?: PermissionAsker) => ToolResult | Promise<ToolResult>) | null = null;
     public override toolName: string = '';
