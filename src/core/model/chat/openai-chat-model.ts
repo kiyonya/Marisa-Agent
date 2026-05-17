@@ -20,7 +20,6 @@ export default class OpenAIChatModel extends ChatModel {
         Promise<void> {
 
         const roundTools = (toolMap && toolMap.size) ? this.buildIsolationTool(toolMap).map(i => i.buildAsOpenAI()) : []
-        const messages = this.headSystemMessages(sessionView.unpackToOpenAIMessages())
 
         const openaiChatCreateOptions: OpenAI.Chat.Completions.ChatCompletionCreateParams =
         {
@@ -28,7 +27,7 @@ export default class OpenAIChatModel extends ChatModel {
             max_completion_tokens: this.modelCompletionOptions.maxCompletionTokens,
             temperature: this.modelCompletionOptions.temperature,
             top_p: this.modelCompletionOptions.topP,
-            messages: messages,
+            messages: sessionView.unpackToOpenAIMessages(),
             stream: false,
             tools: roundTools,
             prompt_cache_retention: this.modelCompletionOptions.promptCacheRetention,
@@ -45,10 +44,11 @@ export default class OpenAIChatModel extends ChatModel {
                 timestamp: Date.now()
             };
 
+
             //@ts-ignore
-            if (choice.reasoning_content) {
+            if (choice.message.reasoning_content) {
                 //@ts-ignore
-                assistantMsg.reasoning_content = choice.reasoning_content
+                assistantMsg.reasoning_content = choice.message.reasoning_content
             }
 
             sessionView.pushMessageToCurrentSession(assistantMsg)
@@ -123,9 +123,9 @@ export default class OpenAIChatModel extends ChatModel {
             };
 
             //@ts-ignore
-            if (choice.reasoning_content) {
+            if (choice.message.reasoning_content) {
                 //@ts-ignore
-                assistantMsg.reasoning_content = choice.reasoning_content
+                assistantMsg.reasoning_content = choice.message.reasoning_content
             }
 
             sessionView.pushMessageToCurrentSession(assistantMsg)
@@ -197,22 +197,20 @@ export default class OpenAIChatModel extends ChatModel {
             prompt_cache_retention: this.modelCompletionOptions.promptCacheRetention,
             tool_choice: this.modelCompletionOptions.toolChoice,
             parallel_tool_calls: this.modelCompletionOptions.parallelToolCalls,
-            //@ts-ignore
-            extra_body: { "thinking": { "type": "disabled" } },
         }
 
         const chatStream = await this.client.chat.completions.create(
             openaiChatStreamCreateOptions
         )
 
-        let responseContent = ''
+
         const toolCallsMap: Record<number, OpenAI.Chat.Completions.ChatCompletionMessageToolCall> = {}
         let finishReason: OpenAI.Chat.Completions.ChatCompletionChunk['choices'][0]['finish_reason'] =
             null
 
         const assistantMessage: Marisa.Chat.Completion.CompletionMessage = {
             role: 'assistant',
-            content: responseContent,
+            content: "",
             reasoning_content: "",
             timestamp: Date.now()
         }
@@ -239,20 +237,32 @@ export default class OpenAIChatModel extends ChatModel {
             //for most model agent
             //the reasoning content is streaming 
 
+            let responseCallbackContent: { delta: string, payload: string, reasoningContentDelta?: string, reasoningContentPayload?: string } = {
+                delta: '',
+                payload: ''
+            }
+
             //@ts-ignore
             if (choice.delta.reasoning_content) {
                 //@ts-ignore
-                assistantMessage.reasoning_content += choice.delta.reasoning_content
+                const delta = choice.delta.reasoning_content
+                //@ts-ignore
+                assistantMessage.reasoning_content += delta
+                //@ts-ignore
+                responseCallbackContent.reasoningContentDelta = delta
             }
 
             if (choice.delta.content) {
                 const delta = choice.delta.content
-                responseContent += delta
-                assistantMessage.content = responseContent
+                assistantMessage.content += delta
+                responseCallbackContent.delta = delta
+            }
 
-                if (onResponse) {
-                    onResponse(delta, responseContent)
-                }
+            if (onResponse) {
+                responseCallbackContent.payload = assistantMessage.content || ""
+                responseCallbackContent.reasoningContentPayload = assistantMessage.reasoning_content || ""
+                
+                onResponse(responseCallbackContent.delta, responseCallbackContent.payload, responseCallbackContent.reasoningContentDelta || void 0, responseCallbackContent.reasoningContentPayload || void 0)
             }
 
             if (choice.delta.tool_calls) {
@@ -324,19 +334,5 @@ export default class OpenAIChatModel extends ChatModel {
             return await this.invokeStreamHandler(sessionView, toolGatter, onResponse)
         }
 
-    }
-
-    private headSystemMessages(messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[]) {
-        const systemMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = []
-        const notSystemMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = []
-        for (const message of messages) {
-            if (message.role === 'system') {
-                systemMessages.push(message)
-            }
-            else {
-                notSystemMessages.push(message)
-            }
-        }
-        return [...systemMessages, ...notSystemMessages]
     }
 }
