@@ -146,8 +146,8 @@ export class SqliteLongtermCategoricalMemoryDatabase extends SqliteDatabase<Tabl
             const metadata = memory.metadata
             const content = memory.content
             const { name, type, description, keywords, time } = metadata
-            const hasRowid = this.stmt('get_rowid').get({ $type: type, $name: name }) as number | null
-            if (!hasRowid) {
+            const hasRowid = this.stmt('get_rowid').get({ $type: type, $name: name }) as {rowid:number | null}
+            if (!hasRowid.rowid) {
                 //create
                 this.stmt('insert').run({
                     $name: name,
@@ -161,7 +161,10 @@ export class SqliteLongtermCategoricalMemoryDatabase extends SqliteDatabase<Tabl
             }
             else {
                 //update
-                const rowid = hasRowid
+                let rowid:number = hasRowid.rowid
+                if(typeof rowid !== 'number'){
+                    throw new Error(`RowId Must Number`)
+                }
                 this.stmt('update').run({
                     $rowid: rowid,
                     $name: name,
