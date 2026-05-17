@@ -384,7 +384,10 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         referenceId:003 | role:用户 | content:我最近正在玩明日方舟，但是我最喜欢玩的还是碧蓝航线 | timestamp:123456
         referenceId:004 | role:AI | content:原来是碧蓝航线，的确很好玩，明日方舟也是很不错的游戏 | timestamp:123456
 
-        你的总结 referenceIds:["001","002","003"],summary:"用户最喜欢玩的游戏是碧蓝航线",keywords:["用户喜好","游戏","碧蓝航线","爱好","电子游戏","游戏风格"]`
+        你的总结 {referenceIds:["001","002","003"],summary:"用户最喜欢玩的游戏是碧蓝航线",keywords:["用户喜好","游戏","碧蓝航线","爱好","电子游戏","游戏风格"]}
+        
+        **请注意referenceIds是 string[] **
+        `
 
         const commitEmbeddingKnowledges: EmbeddingKnowledge[] = []
 
@@ -408,7 +411,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
             })
             return "Successed"
         }, {
-            referenceIds: z.enum([...metaIdMap.keys()]),
+            referenceIds: z.array(z.enum([...metaIdMap.keys()])),
             summary: z.string(),
             keywords: z.array(z.string()).min(3)
         })
@@ -502,8 +505,8 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
                 metadata: metadata,
                 content: content
             }
-
             commitMemoryUpdates.push(memory)
+            return "Successed"
         }, {
             type: z.enum(['user', 'feedback', 'reference', 'experience']),
             name: z.string(),
