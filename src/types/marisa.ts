@@ -170,7 +170,7 @@ export namespace Marisa {
             }
 
             export type OnSessionUpdateCallback = (session: CompletionSession) => void
-            export type OnStreamResponseCallback = (delta: string, payload: string) => void
+            export type OnStreamResponseCallback = (delta: string, payload: string,reasoningContentDelta?:string,reasoningContentPayload?:string) => void
             export type CompletionMode = 'context' | 'sessionOnly' | 'sessionIsolation'
 
             export type CompletionTool = OpenAI.Chat.Completions.ChatCompletionTool
