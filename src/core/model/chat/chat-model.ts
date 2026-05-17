@@ -117,9 +117,6 @@ abstract class ChatModelAbstractDefination extends ChatModelAbstractImpl {
         return this
     }
 
-    public endpoint(Endpoint: new () => ModelEndPoint) {
-        const endpoint = new Endpoint()
-    }
 }
 
 export interface ModelInterceptors {
@@ -537,4 +534,11 @@ export default abstract class ChatModel extends ChatModelAbstractDefination {
         return interceptors
     }
 
+    public endpoint(Endpoint: new (model: ChatModel) => ModelEndPoint) {
+        const endpoint = new Endpoint(this)
+        if (!endpoint.start) {
+            throw new Error("Endpoint must has entry method start")
+        }
+        endpoint.start()
+    }
 }

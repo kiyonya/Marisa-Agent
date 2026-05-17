@@ -7,4 +7,5 @@ export default abstract class ModelEndPoint {
         this.chatModel = model
     }
 
+    public abstract start():void
 }
