@@ -4,9 +4,9 @@ import { Marisa } from "../../../types/marisa";
 
 export default class OpenAIEmbeddingModel extends EmbeddingModel {
     private client: OpenAI
-    constructor(modelName: string, client: OpenAI) {
+    constructor(modelName: string, client?: OpenAI) {
         super(modelName)
-        this.client = client
+        this.client = client || new OpenAI()
     }
 
     public override async embedding(input: string | string[] | number[] | number[][], dimensions: number = 512): Promise<Marisa.Embedding.EmbeddingResponse> {
