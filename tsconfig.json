@@ -30,7 +30,8 @@
     "outDir": "dist",
     "paths": {
       "@core/*":["./src/core/*"],
-      "@type/*":["./src/types/*"]
+      "@type/*":["./src/types/*"],
+      "marisa":["./src/marisa.ts"]
     }
   },
   "include": ["./src","example.ts"],

@@ -84,19 +84,19 @@ export namespace Marisa {
                     content: string;
                     role: 'system';
                     name?: string;
-                    temporary?:boolean
+                    temporary?: boolean
                 }
                 export interface ChatCompletionDeveloperMessage extends Message {
                     content: string
                     role: 'developer';
                     name?: string;
-                    temporary?:boolean
+                    temporary?: boolean
                 }
                 export interface ChatCompletionUserMessage extends Message {
                     content: string
                     role: 'user';
                     name?: string;
-                    temporary?:boolean
+                    temporary?: boolean
                 }
                 export interface ChatCompletionAssistantMessageParam extends Message {
                     role: 'assistant';
@@ -107,14 +107,14 @@ export namespace Marisa {
                     refusal?: string | null;
                     tool_calls?: Array<OpenAIChatCompletionMessageToolCall>;
                     reasoning_content?: string,
-                    temporary?:boolean
+                    temporary?: boolean
                 }
                 export interface ChatCompletionToolCallMessage extends Message {
                     content: string
                     role: 'tool';
                     tool_call_id: string;
                     is_error?: boolean,
-                    temporary?:boolean
+                    temporary?: boolean
                 }
                 export type OpenAIChatCompletionMessageToolCall =
                     | ChatCompletionMessageFunctionToolCall
@@ -170,7 +170,7 @@ export namespace Marisa {
             }
 
             export type OnSessionUpdateCallback = (session: CompletionSession) => void
-            export type OnStreamResponseCallback = (delta: string, payload: string,reasoningContentDelta?:string,reasoningContentPayload?:string) => void
+            export type OnStreamResponseCallback = (delta: string, payload: string, reasoningContentDelta?: string, reasoningContentPayload?: string) => void
             export type CompletionMode = 'context' | 'sessionOnly' | 'sessionIsolation'
 
             export type CompletionTool = OpenAI.Chat.Completions.ChatCompletionTool
@@ -283,9 +283,9 @@ export namespace Marisa {
             consolidated: [sessions: Marisa.Chat.Completion.CompletionSession[]],
             consolidateSave: []
 
-            summarizeSuccess:[completion:Marisa.Chat.Completion.CompletionSession,updateKnowledgeCount?:number,updateMemoryCount?:number]
-            summarizeFail:[error?:Error | string]
-            summarizeStart:[]
+            summarizeSuccess: [completion: Marisa.Chat.Completion.CompletionSession, updateKnowledgeCount?: number, updateMemoryCount?: number]
+            summarizeFail: [error?: Error | string]
+            summarizeStart: []
         }
 
         export interface Model extends ModelContextManager {
@@ -296,8 +296,52 @@ export namespace Marisa {
     export namespace Provider {
         export namespace OpenAI {
 
+            export type KnownOpenAIChatModel = ('gpt-4o' | 'gpt-4o-mini' | 'gpt-4-turbo' | 'gpt-4-turbo-preview' | 'gpt-4-0125-preview' | 'gpt-4-1106-preview' | 'gpt-4-vision-preview' | 'gpt-4' | 'gpt-4-0613' | 'gpt-4-0314' | 'gpt-3.5-turbo' | 'gpt-3.5-turbo-0125' | 'gpt-3.5-turbo-1106' | 'gpt-3.5-turbo-0613' | 'gpt-3.5-turbo-16k' | 'gpt-3.5-turbo-16k-0613' | 'o1-preview' | 'o1-mini' | 'o1-2024-12-17')
 
-            export type OpenAIChatModel = string | ('gpt-4o' | 'gpt-4o-mini' | 'gpt-4-turbo' | 'gpt-4-turbo-preview' | 'gpt-4-0125-preview' | 'gpt-4-1106-preview' | 'gpt-4-vision-preview' | 'gpt-4' | 'gpt-4-0613' | 'gpt-4-0314' | 'gpt-3.5-turbo' | 'gpt-3.5-turbo-0125' | 'gpt-3.5-turbo-1106' | 'gpt-3.5-turbo-0613' | 'gpt-3.5-turbo-16k' | 'gpt-3.5-turbo-16k-0613' | 'o1-preview' | 'o1-mini' | 'o1-2024-12-17')
+            export type OpenAIChatModel = KnownOpenAIChatModel | (string & {})
+        }
+        export namespace OpenAICompatible {
+
+            export type DeepSeekModels =
+                | 'deepseek-v3'
+                | 'deepseek-v4-pro'
+                | 'deepseek-v4-flash'
+                | 'deepseek-chat'
+                | 'deepseek-reasoner';
+
+            export type MiMoModels =
+                | 'mimo-v2-pro'
+                | 'mimo-v2-omni'
+                | 'mimo-v2.5'
+
+            export type ZhipuModels =
+                | 'glm-z1-air'
+                | 'glm-z1-airx'
+                | 'glm-z1-flash'
+                | 'glm-z1-32b-0414'
+                | 'glm-z1-rumination-32b-0414'
+                | 'glm-4-flash'
+                | 'glm-4.7-flash';
+
+            export type DoubaoModels =
+                | 'doubao-2.0-pro'
+                | 'doubao-2.0-lite'
+                | 'doubao-2.0-mini'
+                | 'doubao-2.0-code'
+                | 'doubao-seed-1.6'
+                | 'doubao-seed-1.6-flash'
+                | 'doubao-seed-1.6-thinking'
+                | 'doubao-seed-1.6-non-thinking'
+                | 'doubao-1.5-pro-32k'
+                | 'doubao-1.5-pro-256k'
+                | 'doubao-1.5-lite-32k'
+                | 'doubao-1.5-thinking-pro'
+                | 'doubao-1.5-vision-pro-32k'
+                | 'doubao-pro-v1'
+                | 'doubao-pro-32k'
+                | 'doubao-pro-32k-241215';
+
+            export type OpenAICompatibleModel = DeepSeekModels | MiMoModels | ZhipuModels | DoubaoModels | (string & {})
         }
     }
 
