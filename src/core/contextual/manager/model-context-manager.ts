@@ -20,30 +20,10 @@ export interface CategoryMemory {
     content: string
 }
 
+export type ContextSaveMethod = (session: Marisa.Chat.Completion.CompletionSession, sessions: Marisa.Chat.Completion.CompletionSession[]) => void
 
-/**
- * when things pass just let it go
- * you never care about what you say in your age 3
- * it's doesn't matter
- * i dont care about what context manager you used before
- * i just care about whether i should save your context now
- * y o l o
- */
+export type ContextLoadMethod = () => Marisa.Chat.Completion.CompletionSession[]
 
-/**
- *  (dir) memories
- *     - longterm.md
- *     - (dir) submemory
- *          - user
- *          - feedback
- *          - reference
- *              - bilibili-link.json
- *              - ncm-link.json
- *      - vector
- *          - memory_vector.db
- *      - search
- *          - memory_search.db
- */
 abstract class ModelContextIOEssential extends ChatModelComponent<Marisa.Events.ModelContextManager> {
 
     protected static memoryCategories: MemoryCategoryAllowedType[] = ['user', 'feedback', 'reference', 'experience']
@@ -58,6 +38,8 @@ export abstract class ModelContextManager extends ModelContextIOEssential {
     protected modelSessionWindowLength: number = 20
     protected modelSessions: Marisa.Chat.Completion.CompletionSession[] = []
     protected registeredTools: Marisa.Tool.AnyToolParam[] = []
+    protected contextSaveMethod?: ContextSaveMethod
+    protected contextLoadMethod?: ContextLoadMethod
 
     constructor(sessions?: Marisa.Chat.Completion.CompletionSession[]) {
         super()
@@ -68,12 +50,26 @@ export abstract class ModelContextManager extends ModelContextIOEssential {
         }
     }
 
+    get context() {
+        return this.modelSessions
+    }
+
+    public setContextSaveMethod(cb: ContextSaveMethod) {
+        this.contextSaveMethod = cb
+        return this
+    }
+
+    public setContextLoadMethod(cb: ContextLoadMethod) {
+        this.contextLoadMethod = cb
+        return this
+    }
+
+    public clearContext() {
+        this.modelSessions = []
+    }
+
     protected createAddContextFunction(contextWorkspace: string) {
-        const func = (session: Marisa.Chat.Completion.CompletionSession) => {
-            if (this.modelSessions.length >= this.modelSessionWindowLength) {
-                this.modelSessions.shift()
-            }
-            this.modelSessions.push(session)
+        const defaultSaveMethod = (session: Marisa.Chat.Completion.CompletionSession) => {
             const contextFile = path.join(contextWorkspace, 'contexts.jsonl')
             const jsonl = new JSONL<Marisa.Chat.Completion.CompletionSession>()
             if (existsSync(contextFile)) {
@@ -81,16 +77,32 @@ export abstract class ModelContextManager extends ModelContextIOEssential {
             }
             jsonl.add(session)
             jsonl.toFile(contextFile)
-            this.emit('sessionSave', contextFile)
+            return contextFile
+        }
+        const func = (session: Marisa.Chat.Completion.CompletionSession) => {
+            if (this.modelSessions.length >= this.modelSessionWindowLength) {
+                this.modelSessions.shift()
+            }
+            this.modelSessions.push(session)
+            if (this.contextSaveMethod) {
+                this.contextSaveMethod(session, [...this.modelSessions])
+            }
+            else {
+                defaultSaveMethod(session)
+            }
         }
         return func
     }
 
-    protected loadSessionToContext(contextsWorkspace: string) {
+    protected loadContext(contextsWorkspace: string) {
+        if (this.contextLoadMethod) {
+            this.modelSessions = this.contextLoadMethod()
+            return
+        }
         const contextFile = path.join(contextsWorkspace, 'contexts.jsonl')
         if (existsSync(contextFile)) {
             const sessions = new JSONL<Marisa.Chat.Completion.CompletionSession>().parseFile(contextFile).toArray()
-            this.modelSessions.push(...sessions)
+            this.modelSessions = sessions
         }
     }
 

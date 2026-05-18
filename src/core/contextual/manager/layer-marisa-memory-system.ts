@@ -91,7 +91,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
 
         this.installFunction = (installer, _modelInfo) => {
 
-            this.loadSessionToContext(installer.getWorkspace('contexts'))
+            this.loadContext(installer.getWorkspace('contexts'))
             this.addContextFunction = this.createAddContextFunction(installer.getWorkspace('contexts'))
 
             if (longtermCategoricalMemoryStore) {
@@ -152,8 +152,6 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
                     console.log(this.pendingSummarizeQueue)
                 }
             })
-
-            console.log('MemoryOS has installed successfully')
         }
 
     }
@@ -210,17 +208,17 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
             this.emit('summarizeStart')
             this.summarizeSessionsPromise = this.runSummarizeSessions(needSummarizeSessions).then((session) => {
                 this.savePendingSummarizeQueue?.()
-                if(session){
+                if (session) {
                     const completion = session.completion
                     const updateKnowledgeCount = session.updateKnowledgeCount
                     const updateMemoryCount = session.updateMemoryCount
-                    this.emit('summarizeSuccess',completion,updateKnowledgeCount,updateMemoryCount)
+                    this.emit('summarizeSuccess', completion, updateKnowledgeCount, updateMemoryCount)
                 }
             }).catch((error) => {
 
                 this.pendingSummarizeQueue.unshift(...needSummarizeSessions)
                 failedTime++
-                this.emit('summarizeFail',error)
+                this.emit('summarizeFail', error)
 
             }).finally(() => {
                 this.savePendingSummarizeQueue?.()
@@ -537,9 +535,9 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         await Promise.all([this.createKnowledgeEmbedding(metaIdMap, commitEmbeddingKnowledges), this.createMemoryUpdate(commitMemoryUpdates)])
 
         return {
-            completion:cmpl,
-            updateMemoryCount:commitMemoryUpdates.length,
-            updateKnowledgeCount:commitEmbeddingKnowledges.length
+            completion: cmpl,
+            updateMemoryCount: commitMemoryUpdates.length,
+            updateKnowledgeCount: commitEmbeddingKnowledges.length
         }
     }
 
