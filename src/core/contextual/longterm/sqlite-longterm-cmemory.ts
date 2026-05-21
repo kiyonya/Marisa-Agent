@@ -146,8 +146,8 @@ export class SqliteLongtermCategoricalMemoryDatabase extends SqliteDatabase<Tabl
             const metadata = memory.metadata
             const content = memory.content
             const { name, type, description, keywords, time } = metadata
-            const hasRowid = this.stmt('get_rowid').get({ $type: type, $name: name }) as {rowid:number | null}
-            if (!hasRowid.rowid) {
+            const hasRowid = this.stmt('get_rowid').get({ $type: type, $name: name }) as {rowid:number | null} | null
+            if (!hasRowid || !hasRowid.rowid) {
                 //create
                 this.stmt('insert').run({
                     $name: name,
