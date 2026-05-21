@@ -6,6 +6,7 @@ dotenv.config()
 import OpenAI from "openai";
 import Marisa from 'marisa';
 
+
 async function MyAwesomeAgent() {
 
   const zhipuClient = new OpenAI({
@@ -42,6 +43,7 @@ async function MyAwesomeAgent() {
     .ready().then((agent) => {
       agent.endpoint(Marisa.EndPoint.CliEndPoint)
     })
+
 }
 
 // 🚀 Launched
