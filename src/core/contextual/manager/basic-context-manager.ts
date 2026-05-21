@@ -8,19 +8,20 @@ export interface BasicContextManagerOptions {
 
 export default class BasicContextManager extends ModelContextManager {
     private options?: BasicContextManagerOptions
+    private addContextFunction?:(session: Marisa.Chat.Completion.CompletionSession)=>void
     constructor(options?: BasicContextManagerOptions) {
         super()
         this.options = options
         this.installFunction = (installer) => {
             installer.registerModelContextPutFunction(this.put.bind(this))
             installer.registerModelContextQueryFunction(this.query.bind(this))
+            this.addContextFunction = this.createAddContextFunction(installer.getWorkspace('contexts'))
         }
     }
 
     public async put(session: Marisa.Chat.Completion.CompletionSession, withHistory?: Marisa.Chat.Completion.CompletionSession[], sessionPutCallback?: () => void): Promise<any> {
 
-        this.addSession(session)
-        await this.saveContext(session)
+        this.addContextFunction?.(session)
         if (sessionPutCallback) {
             sessionPutCallback()
         }
