@@ -833,7 +833,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
                 }
                 return userMessage
             case "assistant":
-                const assistantMessage: Marisa.Chat.Completion.Messages.ChatCompletionAssistantMessageParam = {
+                const assistantMessage: Marisa.Chat.Completion.Messages.ChatCompletionAssistantMessage = {
                     role: 'assistant',
                     content: metadata.content,
                     timestamp: metadata.time,

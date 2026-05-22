@@ -84,7 +84,8 @@ export namespace Marisa {
                     content: string;
                     role: 'system';
                     name?: string;
-                    temporary?: boolean
+                    temporary?: boolean,
+                    
                 }
                 export interface ChatCompletionDeveloperMessage extends Message {
                     content: string
@@ -98,7 +99,7 @@ export namespace Marisa {
                     name?: string;
                     temporary?: boolean
                 }
-                export interface ChatCompletionAssistantMessageParam extends Message {
+                export interface ChatCompletionAssistantMessage extends Message {
                     role: 'assistant';
                     audio?: { id: string } | null;
                     content?: string
@@ -107,7 +108,8 @@ export namespace Marisa {
                     refusal?: string | null;
                     tool_calls?: Array<OpenAIChatCompletionMessageToolCall>;
                     reasoning_content?: string,
-                    temporary?: boolean
+                    temporary?: boolean,
+                    thinking?:string
                 }
                 export interface ChatCompletionToolCallMessage extends Message {
                     content: string
@@ -125,7 +127,7 @@ export namespace Marisa {
                 }
             }
 
-            export type CompletionMessage = Messages.ChatCompletionSystemMessage | Messages.ChatCompletionAssistantMessageParam | Messages.ChatCompletionDeveloperMessage | Messages.ChatCompletionToolCallMessage | Messages.ChatCompletionUserMessage
+            export type CompletionMessage = Messages.ChatCompletionSystemMessage | Messages.ChatCompletionAssistantMessage | Messages.ChatCompletionDeveloperMessage | Messages.ChatCompletionToolCallMessage | Messages.ChatCompletionUserMessage
 
             export interface ChatUsageDetail {
                 accepted_prediction_tokens?: number;
@@ -148,6 +150,11 @@ export namespace Marisa {
                 audio_tokens?: number;
                 reasoning_tokens?: number;
                 rejected_prediction_tokens?: number;
+                anthropic_server_tool_use?:{
+                    web_fetch_requests?: number;
+                    web_search_requests?: number
+                },
+                anthropic_read_input_cache?:number
             }
 
             export interface PromptTokensDetails {
