@@ -1,216 +1,316 @@
-import { Marisa } from "../../../types/marisa";
+import { Marisa } from "@type/marisa";
 import ModelSessionView from "./model-session-view";
-import ChatModel from "./chat-model";
+import ChatModel, { RoundToolGetter } from "./chat-model";
 import Anthropic from '@anthropic-ai/sdk'
+import * as Convert from './anthropic-convert'
 
-type BuildToolFilter = (tool: Marisa.Tool.AnyTool) => boolean
+// throw new Error("Anthroupic Now Not Support,Plz Wait Next Version")
 
+interface ChatCompletionAssistantMessageWithStopStatus extends Marisa.Chat.Completion.Messages.ChatCompletionAssistantMessage {
+    isStop: boolean
+}
 
 export default class AnthropicChatModel extends ChatModel {
 
     private client: Anthropic
-    constructor(modelName: Marisa.Provider.OpenAI.OpenAIChatModel, client?: Anthropic) {
-        super(modelName)
+    constructor(modelName: string, workspace: string, client?: Anthropic) {
+        super(modelName, workspace)
         this.client = client || new Anthropic()
     }
 
-    public override async complete(prompt: string, systemPrompt?: string, toolMap?: Map<string, Marisa.Tool.AnyTool>): Promise<Marisa.Chat.Completion.CompletionSession> {
+    protected override async completeHandler(sessionView: ModelSessionView, toolMap?: Map<string, Marisa.Tool.AnyTool>): Promise<void> {
 
-        const completionSystemPrompt = systemPrompt || this.builsDefaultSystemPrompt() || ''
-        const currentSessionView = this.createEmptySessionView()
-        currentSessionView.pushMessageToCurrentSession({
-            role: 'system',
-            content: completionSystemPrompt,
-            timestamp: Date.now()
-        })
-        const userMessage = this.createUserMessage(prompt)
-        currentSessionView.pushMessageToCurrentSession(userMessage)
-        await this._complete(currentSessionView, toolMap)
-        const session = currentSessionView.getSession()
-        this.onSessionEnd('complete', session)
-        return session
-    }
-
-    private async _complete(sessionView: ModelSessionView, toolMap?: Map<string, Marisa.Tool.AnyTool>): Promise<Anthropic.Messages.Message> {
         const roundTools = (toolMap && toolMap.size) ? this.buildIsolationTool(toolMap).map(i => i.buildAsAnthropic()) : []
         const { system, messages } = sessionView.unpackToAnthropicMessages()
-        const anthropicChatCreateOptions: Anthropic.Messages.MessageCreateParamsNonStreaming =
-        {
+
+        const anthropicMessageCreateParams: Anthropic.Messages.MessageCreateParams = {
             model: this.modelName,
-            max_tokens: this.modelCompletionOptions.maxCompletionTokens!,
-            system: system,
-            messages: messages,
-            tools: roundTools,
+            max_tokens: this.modelCompletionOptions.maxCompletionTokens ?? 4096,
             temperature: this.modelCompletionOptions.temperature,
             top_p: this.modelCompletionOptions.topP,
-            stream: false,
-        }
+            messages: messages,
+            system: system,
+            tools: roundTools,
+            tool_choice: Convert.convertToolChoice(this.modelCompletionOptions.toolChoice, this.modelCompletionOptions.parallelToolCalls),
+            stream: false
+        };
 
-        const completion = await this.client.messages.create(anthropicChatCreateOptions)
-        completion.stop_reason === 'tool_use'
-        if (completion && completion.content) {
-            const contentArray = Array.isArray(completion.content) ? completion.content : [completion.content]
-            const toolCallCollections: Marisa.Chat.Completion.Messages.OpenAIChatCompletionMessageToolCall[] = []
-            let assistantMessage: string = ""
-            for (const content of contentArray) {
-                const type = content.type
-                if (typeof content === 'string') {
-                    assistantMessage += content
+        const result = await this.client.messages.create(anthropicMessageCreateParams)
+
+        if (result.content?.length) {
+
+            const assistantMessages: Marisa.Chat.Completion.CompletionMessage[] = []
+            const toolUses: Marisa.Chat.Completion.Messages.OpenAIChatCompletionMessageToolCall[] = []
+
+            for (const content of result.content) {
+
+                const message: Marisa.Chat.Completion.CompletionMessage = {
+                    role: 'assistant',
+                    timestamp: Date.now(),
+                    tool_calls: []
+                };
+
+                switch (content.type) {
+                    case "text":
+                        message.content = content.text
+                        break
+                    case "thinking":
+                        message.thinking = content.thinking
+                        message.reasoning_content = content.thinking
+                        break
+                    case "redacted_thinking":
+                        message.thinking = content.data
+                        break
+                    case "tool_use":
+                        const mtooluse = Convert.convertToolUse(content)
+                        toolUses.push(mtooluse)
+                        if (!message.tool_calls) {
+                            message.tool_calls = []
+                        }
+                        message.tool_calls.push(mtooluse)
+                        break
+                    case "server_tool_use":
+                        const mserverToolUse = Convert.convertServerToolUse(content)
+                        toolUses.push(mserverToolUse)
+                        if (!message.tool_calls) {
+                            message.tool_calls = []
+                        }
+                        message.tool_calls.push(mserverToolUse)
+                        break
+                    case "web_search_tool_result":
+                    case "web_fetch_tool_result":
+                    case "code_execution_tool_result":
+                    case "bash_code_execution_tool_result":
+                    case "text_editor_code_execution_tool_result":
+                    case "tool_search_tool_result":
+                    case "container_upload":
+                        break
                 }
-                else {
-                    switch (type) {
-                        case "text":
-                            const str = content.text
-                            assistantMessage += str
-                            break
-                        case "tool_use":
-                        case "server_tool_use":
-                            const toolCallFunctionLike: Marisa.Chat.Completion.Messages.OpenAIChatCompletionMessageToolCall = {
-                                type: "function",
-                                id: content.id,
-                                function: {
-                                    arguments: JSON.stringify(content.input),
-                                    name: content.name,
-                                }
+
+                assistantMessages.push(message)
+            }
+
+            if (toolUses.length) {
+                for (const toolUse of toolUses) {
+                    if (toolUse.type === 'function' && toolMap) {
+                        try {
+                            const callName = toolUse.function.name
+                            const callArguments = JSON.parse(toolUse.function.arguments)
+
+                            this.emit('toolCall', callName, callArguments)
+
+                            const callResult = await this.handleIsolateToolCall(toolMap, callName, callArguments)
+
+                            const toolCallMessage: Marisa.Chat.Completion.CompletionMessage = {
+                                role: 'tool',
+                                content: typeof callResult === 'string' ? callResult : JSON.stringify(callResult),
+                                tool_call_id: toolUse.id,
+                                timestamp: Date.now()
                             }
-                            toolCallCollections.push(toolCallFunctionLike)
-                            break
-                        case "web_search_tool_result":
-                        case "web_fetch_tool_result":
-                        case "code_execution_tool_result":
-                        case "bash_code_execution_tool_result":
-                        case "text_editor_code_execution_tool_result":
-                        case "tool_search_tool_result":
-                        case "container_upload":
+                            sessionView.pushMessageToCurrentSession(toolCallMessage)
+                        } catch (error) {
+                            const toolCallErrorMessage: Marisa.Chat.Completion.CompletionMessage = {
+                                role: 'tool',
+                                content: JSON.stringify({
+                                    error: 'Failed to execute function arguments parse error'
+                                }),
+                                tool_call_id: toolUse.id,
+                                timestamp: Date.now()
+                            }
+                            sessionView.pushMessageToCurrentSession(toolCallErrorMessage)
+                        }
                     }
                 }
             }
-            const assistantMsg: Marisa.Chat.Completion.CompletionMessage = {
-                role: 'assistant',
-                content: assistantMessage,
-                tool_calls: toolCallCollections,
-                timestamp: Date.now()
-            };
-            sessionView.pushMessageToCurrentSession(assistantMsg)
-            if (completion.stop_reason === 'tool_use' && toolMap) {
-                for (const toolCallFunctionLike of toolCallCollections) {
-                    try {
-                        const callName = toolCallFunctionLike.type === 'function' ? toolCallFunctionLike.function.name : toolCallFunctionLike.custom.name
-                        const argstr = toolCallFunctionLike.type === 'function' ? toolCallFunctionLike.function.arguments : toolCallFunctionLike.custom.input
-                        const callArguments = JSON.parse(argstr)
-                        const callResult = await this.handleIsolateToolCall(toolMap, callName, callArguments)
-                        const toolCallMessage: Marisa.Chat.Completion.CompletionMessage = {
-                            role: 'tool',
-                            content: typeof callResult === 'string' ? callResult : JSON.stringify(callResult),
-                            tool_call_id: toolCallFunctionLike.id,
-                            timestamp: Date.now(),
-                            is_error: false
-                        }
-                        sessionView.pushMessageToCurrentSession(toolCallMessage)
-                    } catch (error) {
-                        const toolCallErrorMessage: Marisa.Chat.Completion.CompletionMessage = {
-                            role: 'tool',
-                            content: JSON.stringify({
-                                error: 'Failed to execute function arguments parse error'
-                            }),
-                            tool_call_id: toolCallFunctionLike.id,
-                            timestamp: Date.now(),
-                            is_error: true
-                        }
-                        sessionView.pushMessageToCurrentSession(toolCallErrorMessage)
-                    }
-                }
-                return await this._complete(sessionView, toolMap)
-            }
-            else {
-                //endturn
-                const anthropicUsage = completion.usage
-                const usage: Marisa.Chat.Completion.CompletionUsage = {
-                    total_tokens: anthropicUsage.input_tokens + anthropicUsage.output_tokens,
-                    completion_tokens: anthropicUsage.output_tokens,
-                    prompt_tokens: anthropicUsage.input_tokens,
-                    cache_tokens: anthropicUsage.cache_creation_input_tokens!
-                }
-                sessionView.setUsage(usage)
-                return completion
-            }
         }
-        else {
-            return completion
+
+        if (result.usage) {
+            const musage = Convert.convertUsage(result.usage)
+            sessionView.setUsage(musage)
         }
     }
 
-    public override async invoke(prompt: string, onSessionUpdate?: Marisa.Chat.Completion.OnSessionUpdateCallback): Promise<Marisa.Chat.Completion.CompletionSession> {
-        const currentSessionView = this.createEmptySessionView()
-        let systemPrompt = this.builsDefaultSystemPrompt()
+    protected override async invokeHandler(sessionView: ModelSessionView, toolGatter: RoundToolGetter): Promise<void> {
+        const roundTools = (await toolGatter() || []).map(tool => tool.buildAsAnthropic())
+        const { system, messages } = sessionView.unpackToAnthropicMessages()
 
-        const [historySessions, systemPromptAddition] = this.modelContextManager ? await this.modelContextManager.query(prompt) : [[], '']
-        systemPrompt += systemPromptAddition
-
-        currentSessionView.pushMessageToCurrentSession({
-            role: 'system',
-            content: systemPrompt,
-            timestamp: Date.now()
-        })
-
-        const userMessage = this.createUserMessage(prompt)
-        currentSessionView.pushMessageToCurrentSession(userMessage)
-
-        if (onSessionUpdate) {
-            currentSessionView.sessionUpdateIndicator(onSessionUpdate)
-        }
-
-        const historySessionView = this.createEmptySessionView()
-        for (const historySession of historySessions) {
-            historySessionView.pushMessageToCurrentSession(...historySession.messages)
-        }
-
-        await this._invoke(historySessionView, currentSessionView, onSessionUpdate)
-        const session = currentSessionView.getSession()
-        const historySession = historySessionView.getSession()
-
-        if (this.modelContextManager) {
-            await this.modelContextManager.put(session, [historySession])
-        }
-
-        currentSessionView.destory()
-        historySessionView.destory()
-
-        this.onSessionEnd('invoke', session)
-        return session
-    }
-
-    private async _invoke(
-        historySessionView: ModelSessionView,
-        currentSessionView: ModelSessionView,
-        onSessionUpdate?: Marisa.Chat.Completion.OnSessionUpdateCallback,
-        toolFilter?: BuildToolFilter) {
-
-        const roundTools = this.buildRoundTool(toolFilter).map(i => i.buildAsAnthropic())
-        const { system, messages } = this.buildAnthropicMessages(historySessionView, currentSessionView)
-        const anthropicChatCreateOptions: Anthropic.Messages.MessageCreateParamsNonStreaming =
-        {
+        const anthropicMessageCreateParams: Anthropic.Messages.MessageCreateParams = {
             model: this.modelName,
-            max_tokens: this.modelCompletionOptions.maxCompletionTokens!,
-            system: system,
-            messages: messages,
-            tools: roundTools,
+            max_tokens: this.modelCompletionOptions.maxCompletionTokens ?? 4096,
             temperature: this.modelCompletionOptions.temperature,
             top_p: this.modelCompletionOptions.topP,
-            stream: false,
+            messages: messages,
+            system: system,
+            tools: roundTools,
+            tool_choice: Convert.convertToolChoice(this.modelCompletionOptions.toolChoice, this.modelCompletionOptions.parallelToolCalls),
+            stream: false
+        };
+
+        const result = await this.client.messages.create(anthropicMessageCreateParams)
+
+        if (result.content?.length) {
+
+            const assistantMessages: Marisa.Chat.Completion.CompletionMessage[] = []
+            const toolUses: Marisa.Chat.Completion.Messages.OpenAIChatCompletionMessageToolCall[] = []
+
+            for (const content of result.content) {
+
+                const message: Marisa.Chat.Completion.CompletionMessage = {
+                    role: 'assistant',
+                    timestamp: Date.now(),
+                    tool_calls: []
+                };
+
+                switch (content.type) {
+                    case "text":
+                        message.content = content.text
+                        break
+                    case "thinking":
+                        message.thinking = content.thinking
+                        message.reasoning_content = content.thinking
+                        break
+                    case "redacted_thinking":
+                        message.thinking = content.data
+                        break
+                    case "tool_use":
+                        const mtooluse = Convert.convertToolUse(content)
+                        toolUses.push(mtooluse)
+                        if (!message.tool_calls) {
+                            message.tool_calls = []
+                        }
+                        message.tool_calls.push(mtooluse)
+                        break
+                    case "server_tool_use":
+                        const mserverToolUse = Convert.convertServerToolUse(content)
+                        toolUses.push(mserverToolUse)
+                        if (!message.tool_calls) {
+                            message.tool_calls = []
+                        }
+                        message.tool_calls.push(mserverToolUse)
+                        break
+                    case "web_search_tool_result":
+                    case "web_fetch_tool_result":
+                    case "code_execution_tool_result":
+                    case "bash_code_execution_tool_result":
+                    case "text_editor_code_execution_tool_result":
+                    case "tool_search_tool_result":
+                    case "container_upload":
+                        break
+                }
+
+                assistantMessages.push(message)
+            }
+
+            if (toolUses.length) {
+                for (const toolUse of toolUses) {
+                    if (toolUse.type === 'function') {
+                        try {
+                            const callName = toolUse.function.name
+                            const callArguments = JSON.parse(toolUse.function.arguments)
+
+                            this.emit('toolCall', callName, callArguments)
+
+                            const callResult = await this.handleToolCall(callName, callArguments)
+
+                            const toolCallMessage: Marisa.Chat.Completion.CompletionMessage = {
+                                role: 'tool',
+                                content: typeof callResult === 'string' ? callResult : JSON.stringify(callResult),
+                                tool_call_id: toolUse.id,
+                                timestamp: Date.now()
+                            }
+                            sessionView.pushMessageToCurrentSession(toolCallMessage)
+                        } catch (error) {
+                            const toolCallErrorMessage: Marisa.Chat.Completion.CompletionMessage = {
+                                role: 'tool',
+                                content: JSON.stringify({
+                                    error: 'Failed to execute function arguments parse error'
+                                }),
+                                tool_call_id: toolUse.id,
+                                timestamp: Date.now()
+                            }
+                            sessionView.pushMessageToCurrentSession(toolCallErrorMessage)
+                        }
+                    }
+                }
+            }
         }
 
-
-
+        if (result.usage) {
+            const musage = Convert.convertUsage(result.usage)
+            sessionView.setUsage(musage)
+        }
     }
 
-    private buildAnthropicMessages(historySessionView: ModelSessionView, currentSessionView: ModelSessionView): { system: string, messages: Anthropic.Messages.MessageParam[] } {
-        const buildMessages: Anthropic.Messages.MessageParam[] = []
-        const history = historySessionView.unpackToAnthropicMessages()
-        buildMessages.push(...history.messages)
-        const current = currentSessionView.unpackToAnthropicMessages()
-        buildMessages.push(...current.messages)
-        const system = current.system
-        return { system, messages: buildMessages }
+    protected override async invokeStreamHandler(sessionView: ModelSessionView, toolGatter: RoundToolGetter, onResponse?: Marisa.Chat.Completion.OnStreamResponseCallback): Promise<void> {
+        const roundTools = (await toolGatter() || []).map(tool => tool.buildAsAnthropic())
+        const { system, messages } = sessionView.unpackToAnthropicMessages()
+
+        const anthropicMessageCreateParams: Anthropic.Messages.MessageCreateParams = {
+            model: this.modelName,
+            max_tokens: this.modelCompletionOptions.maxCompletionTokens ?? 4096,
+            temperature: this.modelCompletionOptions.temperature,
+            top_p: this.modelCompletionOptions.topP,
+            messages: messages,
+            system: system,
+            tools: roundTools,
+            tool_choice: Convert.convertToolChoice(this.modelCompletionOptions.toolChoice, this.modelCompletionOptions.parallelToolCalls),
+            stream: true
+        };
+
+        const result = await this.client.messages.create(anthropicMessageCreateParams)
+        const toolCallsMap: Record<number, Marisa.Chat.Completion.Messages.ChatCompletionToolCallMessage> = {}
+
+
+        const messageMap = new Map<number, ChatCompletionAssistantMessageWithStopStatus>()
+
+        for await (const event of result) {
+            if (event.type === 'content_block_start') {
+                const message: ChatCompletionAssistantMessageWithStopStatus = {
+                    role: 'assistant',
+                    timestamp: Date.now(),
+                    tool_calls: [],
+                    isStop: false
+                };
+                const index = event.index
+                messageMap.set(index, message)
+            }
+            else if (event.type === 'content_block_stop') {
+                const index = event.index
+                const message = messageMap.get(index)
+                if (message) {
+                    message.isStop = true
+                    messageMap.set(index, message)
+                }
+            }
+            else if (event.type === 'content_block_delta') {
+                const index = event.index
+                const message = messageMap.get(index)
+                if (message) {
+                    const delta = event.delta
+                    switch (delta.type) {
+                        case "text_delta":
+                            message.content += delta.text
+                            break
+                        case "input_json_delta":
+                            break
+                        case "citations_delta":
+                            break
+                        case "thinking_delta":
+                            message.thinking += delta.thinking
+                            message.reasoning_content += delta.thinking
+                            break
+                        case "signature_delta":
+                    }
+                }
+            }
+            else if (event.type === 'message_delta') {
+                if (event.delta.stop_reason === 'tool_use') {
+                    event.delta.stop_sequence
+                }
+
+            }
+
+        }
+
     }
 }
