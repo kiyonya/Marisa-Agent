@@ -4,6 +4,7 @@ import ToolGroup from "@core/tool/tool-group";
 import AgentPluginBase from "@core/plugin/agent-plugin-base";
 import { StdioServerParameters } from "@modelcontextprotocol/sdk/client/stdio.js";
 import ChatModelComponent from "@core/model/chat/chat-model-component";
+import ChatModel from "@core/model/chat/chat-model";
 
 
 export interface AgentComponentInstallManifest {
@@ -22,6 +23,7 @@ type Interceptor<I> = (prev: I) => I
 
 export default class AgentComponentInstaller extends ComponentInstaller<AgentComponentInstallManifest> {
 
+    public getModel:()=>ChatModel
     private readonly tools = new Map<string, Marisa.Tool.AnyToolParam>()
     private readonly mcps = new Map<string, URL | StdioServerParameters>()
     private readonly toolGroups = new Map<string, ToolGroup>()
@@ -35,8 +37,9 @@ export default class AgentComponentInstaller extends ComponentInstaller<AgentCom
         } = {}
     private readonly modelSystemPromptFragments:string[] = []
 
-    constructor(workspace: string) {
+    constructor(workspace: string,model:ChatModel) {
         super(workspace)
+        this.getModel = ()=>model
     }
 
     public registerTool(tool: Marisa.Tool.AnyToolParam): void {
