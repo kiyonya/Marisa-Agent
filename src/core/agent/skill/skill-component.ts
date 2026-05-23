@@ -6,15 +6,21 @@ import LocalTool from "@core/tool/local-tool"
 import z from "zod"
 import chalk from "chalk"
 
-export default class SkillLoader extends AgentComponent {
+/**
+ * create an agent component that can load skill
+ */
+export default class SkillComponent extends AgentComponent {
 
     public skillMap = new Map<string, Skill>()
-    constructor(workspace: string) {
+    protected skillDir?: string
+    /**
+     * @param skillDir the folder of skills,default is the **${workspace}/skills**
+     */
+    constructor(skillDir?: string) {
         super()
-        this.workspace = workspace
-
+        this.skillDir = skillDir
         this.installFunction = async (installer) => {
-            const skillDir = installer.getWorkspace("skills")
+            const skillDir = this.skillDir || installer.getWorkspace("skills")
             const reader = new SkillReader(skillDir)
             const skills = await reader.read()
             for (const skill of skills) {
