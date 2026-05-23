@@ -11,13 +11,11 @@ import fs from 'fs'
 import path from "path";
 import AgentPluginBase from "../plugin/agent-plugin-base";
 import PluginInstaller from "../plugin/plugin-installer";
-import SkillLoader from "./skill/skill-loader";
 import AgentComponent from "./impl/agent-component";
 import AgentComponentInstaller from "./impl/agent-component-installer";
 import ToolGroup from "@core/tool/tool-group";
 import ChatModelComponent from "@core/model/chat/chat-model-component";
 import { Interceptor } from "@core/utils/interceptor";
-import SubAgentManager from "./subagent/sub-agent-manager";
 import AgentTODO from "./todo/todo";
 
 interface AgentEvents {
@@ -69,7 +67,7 @@ abstract class AgentDefination extends EventEmitter<AgentEvents> {
     protected agentDefaultSystemPrompt = `Always try to use tools when necessary. If you don't know how to do something, use the tools to find out.`
     protected agentOptions?: AgentOptions
 
-    constructor(workspace:string,chatModelName: string, client: OpenAI, sessions?: Marisa.Chat.Completion.CompletionSession[]) {
+    constructor(workspace: string, chatModelName: string, client: OpenAI, sessions?: Marisa.Chat.Completion.CompletionSession[]) {
         super()
         this.workspace = path.resolve(workspace)
         this.client = client
@@ -171,14 +169,14 @@ abstract class AgentDefination extends EventEmitter<AgentEvents> {
 
 export default abstract class Agent extends AgentDefination {
 
-    constructor(workspace:string,chatModelName: string, client: OpenAI, sessions?: Marisa.Chat.Completion.CompletionSession[]) {
-        super(workspace,chatModelName, client, sessions)
+    constructor(workspace: string, chatModelName: string, client: OpenAI, sessions?: Marisa.Chat.Completion.CompletionSession[]) {
+        super(workspace, chatModelName, client, sessions)
     }
 
     public async ready(modelCreateCallback?: (model: ChatModel) => void): Promise<ChatModel> {
 
         const model = this.chatModel
-        const readyComponents: AgentComponent<any>[] = []
+        const readyComponents: AgentComponent<any>[] = [...this.agentComponents]
         const readyTools: Marisa.Tool.AnyToolParam[] = []
         const readyToolGroups: ToolGroup[] = []
         const readyMCPServers = new Map<string, URL | StdioServerParameters>()
@@ -207,62 +205,53 @@ export default abstract class Agent extends AgentDefination {
             readyModelComponents.push(this.modelMemoryComponent)
         }
 
-        //create defalut agentComponents
-        if (this.agentOptions?.enableSkill ?? true) {
-            const skillLoader = new SkillLoader(this.workspace)
-            readyComponents.push(skillLoader)
-        }
-        if (this.agentOptions?.enableSubAgent ?? true) {
-            const agentSubAgentManager = new SubAgentManager(model)
-            readyComponents.push(agentSubAgentManager)
-        }
-        if (this.agentOptions?.enableAgentCreateTODO ?? true) {
-            const agentToDo = new AgentTODO()
-            readyComponents.push(agentToDo)
-        }
-
         //解压组件
         if (readyComponents.length) {
             for (const agentComponent of readyComponents) {
-                if (!agentComponent.installFunction) { continue }
-                const installerBridge = new AgentComponentInstaller(this.workspace)
-                agentComponent.installFunction(installerBridge)
-                const manifest = installerBridge.createInstallManifest()
+                try {
+                    if (!agentComponent.installFunction) {
+                        continue
+                    }
+                    const installerBridge = new AgentComponentInstaller(this.workspace, model)
+                    await agentComponent.installFunction(installerBridge)
+                    const manifest = installerBridge.createInstallManifest()
 
-                if (manifest.tools) {
-                    readyTools.push(...manifest.tools)
-                }
-                if (manifest.toolGroups) {
-                    readyToolGroups.push(...manifest.toolGroups)
-                }
-                if (manifest.mcps && manifest.mcps.size) {
-                    for (const [name, server] of manifest.mcps.entries()) {
-                        readyMCPServers.set(name, server)
+                    if (manifest.tools) {
+                        readyTools.push(...manifest.tools)
                     }
-                }
-                if (manifest.plugins?.length) {
-                    readyPlugins.push(...manifest.plugins)
-                }
-                if (manifest.modelComponent?.length) {
-                    readyModelComponents.push(...manifest.modelComponent)
-                }
-                if (manifest.modelInterceptors) {
-                    readyModelInterceptorRecords.push(manifest.modelInterceptors)
-                }
-                if (manifest.modelSlashCommands && manifest.modelSlashCommands.size) {
-                    for (const [cmd, callback] of manifest.modelSlashCommands.entries()) {
-                        readyModelSlashCommands.set(cmd, callback)
+                    if (manifest.toolGroups) {
+                        readyToolGroups.push(...manifest.toolGroups)
                     }
-                    manifest.modelSlashCommands.clear()
-                }
-                if (manifest.modelMentionCommands && manifest.modelMentionCommands.size) {
-                    for (const [cmd, callback] of manifest.modelMentionCommands.entries()) {
-                        readyModelSlashCommands.set(cmd, callback)
+                    if (manifest.mcps && manifest.mcps.size) {
+                        for (const [name, server] of manifest.mcps.entries()) {
+                            readyMCPServers.set(name, server)
+                        }
                     }
-                    manifest.modelMentionCommands.clear()
-                }
-                if (manifest.modelSystemPromptFragments?.length) {
-                    readyExtraSystemPrompt.push(...manifest.modelSystemPromptFragments)
+                    if (manifest.plugins?.length) {
+                        readyPlugins.push(...manifest.plugins)
+                    }
+                    if (manifest.modelComponent?.length) {
+                        readyModelComponents.push(...manifest.modelComponent)
+                    }
+                    if (manifest.modelInterceptors) {
+                        readyModelInterceptorRecords.push(manifest.modelInterceptors)
+                    }
+                    if (manifest.modelSlashCommands && manifest.modelSlashCommands.size) {
+                        for (const [cmd, callback] of manifest.modelSlashCommands.entries()) {
+                            readyModelSlashCommands.set(cmd, callback)
+                        }
+                        manifest.modelSlashCommands.clear()
+                    }
+                    if (manifest.modelMentionCommands && manifest.modelMentionCommands.size) {
+                        for (const [cmd, callback] of manifest.modelMentionCommands.entries()) {
+                            readyModelSlashCommands.set(cmd, callback)
+                        }
+                        manifest.modelMentionCommands.clear()
+                    }
+                    if (manifest.modelSystemPromptFragments?.length) {
+                        readyExtraSystemPrompt.push(...manifest.modelSystemPromptFragments)
+                    }
+                } catch (error) {
                 }
             }
         }

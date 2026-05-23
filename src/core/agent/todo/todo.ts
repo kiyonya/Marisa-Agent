@@ -5,6 +5,7 @@ import DynamicTool from "@core/tool/dynamic-tool";
 import crypto from 'crypto'
 import z from "zod";
 import XMLPromptTemplate from "@core/prompt/template/xml-prompt-template";
+import { Marisa } from "@type/marisa";
 
 export interface TODOItem {
     title: string,
@@ -16,7 +17,7 @@ export interface TODOItem {
 }
 
 
-export default class AgentTODO extends AgentComponent<any> {
+export default class AgentTODO extends AgentComponent<Marisa.Events.AgentComponent.TODOComponent> {
     private TODO = new Map<string, TODOItem>()
     private readonly CREATE_TODO_TOOL_NAME = 'CreateTODO'
     private readonly UPDATE_TODO_TOOL_NAME = 'UpdateTODO'
@@ -28,7 +29,6 @@ export default class AgentTODO extends AgentComponent<any> {
 
             installer.registerModelInterceptor('userPromptInput', ({ inputMessages }) => {
                 if (this.TODO.size) {
-                    //插入临时的todo消息到usermessage
                     for (const [uuid, todo] of this.TODO.entries()) {
 
                         const todoXML = `<todo uuid="${uuid}" title="${todo.title}" description="${todo.description}" currentStep="${todo.currentStep}" totalSteps="${todo.steps.length}">${todo.steps.map((step, index) => `<step number="${index + 1}" ${index < todo.currentStep ? 'status="completed"' : ''}>${step}</step>`).join('')}</todo>`
@@ -94,6 +94,7 @@ export default class AgentTODO extends AgentComponent<any> {
                         status: currentStep === steps.length ? 'complete' : 'pending'
                     }
 
+                    this.emit('todoCreate', item)
                     this.TODO.set(hashUUID, item)
 
                     const status = cstep === steps.length ? ' and automatically marked as completed' : ''
@@ -141,6 +142,7 @@ export default class AgentTODO extends AgentComponent<any> {
                         return `TODO "${todo.title}" is now COMPLETED! All ${maxSteps} steps finished.`
                     }
 
+                    this.emit('todoUpdate', todo)
                     this.TODO.set(uuid, todo)
                     return `Updated "${todo.title}" to step ${currentStep}`
                 },

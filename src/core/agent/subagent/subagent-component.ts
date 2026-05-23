@@ -15,7 +15,7 @@ export interface CreateSubAgentOptions {
     waitExecResult: boolean
 }
 
-export default class SubAgentManager extends AgentComponent {
+export default class SubAgentComponent extends AgentComponent<Marisa.Events.AgentComponent.SubAgentComponent> {
 
     private readonly mainAgentSystemPromptGuide = `## SubAgent Usage Guide
     
@@ -102,29 +102,29 @@ It is **strongly recommended** to use CreateSubAgent in the following scenarios:
 }`
 
     private readonly subAgentSystemPrompt = `You are a subagent spawned by the main agent to complete a specific task.Stay focused on the assigned task. Your final response will be reported back to the main agent.`
-    private chatModel: ChatModel
     private subAgentToolMap = new Map<string, Marisa.Tool.AnyTool>()
 
-    constructor(chatModel: ChatModel, tools?: Marisa.Tool.AnyTool[]) {
+    constructor(chatModel?: ChatModel, tools?: Marisa.Tool.AnyTool[]) {
         super()
-        this.chatModel = chatModel
         const agentTools = tools ? tools : [...SubAgentDefaultTools]
         for (const tool of agentTools) {
             this.subAgentToolMap.set(tool.toolName, tool)
         }
         this.installFunction = (installer) => {
-            const tool = this.createToolForMainAgent(installer.workspace)
+            const model = chatModel || installer.getModel()
+            const tool = this.createToolForMainAgent(installer.workspace, model)
             installer.registerTool(tool)
             installer.registerSystemPromptFragment(this.mainAgentSystemPromptGuide)
         }
     }
 
-    private createToolForMainAgent(workspace: string) {
+    private createToolForMainAgent(workspace: string, chatModel: ChatModel) {
 
         const toolDescription = `Tool for creating sub-agents to handle specific tasks. Accepts a list of tasks with their respective system prompts and user prompts, along with execution options.Returns the results of each sub-agent's execution if waitExecResult is true, otherwise returns true after initiating all sub-agents.\nwhen your task need create or read files,you must tell the sub-agent the path of file or directory in absolute path, and the sub-agent will read or create files in the workspace directory. the workspace directory is ${workspace}.`
 
         return new LocalTool<CreateSubAgentOptions>('CreateSubAgent', toolDescription, async ({ tasks, parallel, waitExecResult }) => {
 
+            this.emit('subAgentCreate', tasks, parallel, waitExecResult)
             const taskPromiseMap = new Map<string, Promise<Marisa.Chat.Completion.CompletionSession>>()
 
             for (const task of tasks) {
@@ -134,14 +134,14 @@ It is **strongly recommended** to use CreateSubAgent in the following scenarios:
                 ${this.subAgentSystemPrompt}\n\n
                 ${task.systemPrompt}
                 `
-                taskPromiseMap.set(name, this.chatModel.complete(taskPrompt, l1systemPrompt, this.subAgentToolMap))
+                taskPromiseMap.set(name, chatModel.complete(taskPrompt, l1systemPrompt, this.subAgentToolMap))
             }
 
             const executor = this.taskMapExecutor(taskPromiseMap, parallel, waitExecResult)
 
             if (waitExecResult) {
                 const data = this.map2Record(await executor)
-                console.log(JSON.stringify(data, null, 4))
+                this.emit('subAgentAllSettled', data)
                 return data
             }
             else {
@@ -166,8 +166,10 @@ It is **strongly recommended** to use CreateSubAgent in the following scenarios:
                 try {
                     const result = await promise
                     results.set(name, result)
+                    this.emit('subAgentExecSuccess', result)
                 } catch (error) {
-                    console.error(name, String(error))
+                    this.emit('subAgentExecFail', error)
+                    results.set(name, String(error))
                 }
             }))
         }
@@ -176,8 +178,10 @@ It is **strongly recommended** to use CreateSubAgent in the following scenarios:
                 try {
                     const result = await promise
                     results.set(name, result)
+                    this.emit('subAgentExecSuccess', result)
                 } catch (error) {
-                    console.error(name, String(error))
+                    this.emit('subAgentExecFail', error)
+                    results.set(name, String(error))
                 }
             }
         }

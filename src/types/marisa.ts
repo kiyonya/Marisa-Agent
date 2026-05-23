@@ -85,7 +85,7 @@ export namespace Marisa {
                     role: 'system';
                     name?: string;
                     temporary?: boolean,
-                    
+
                 }
                 export interface ChatCompletionDeveloperMessage extends Message {
                     content: string
@@ -109,7 +109,7 @@ export namespace Marisa {
                     tool_calls?: Array<OpenAIChatCompletionMessageToolCall>;
                     reasoning_content?: string,
                     temporary?: boolean,
-                    thinking?:string
+                    thinking?: string
                 }
                 export interface ChatCompletionToolCallMessage extends Message {
                     content: string
@@ -150,11 +150,11 @@ export namespace Marisa {
                 audio_tokens?: number;
                 reasoning_tokens?: number;
                 rejected_prediction_tokens?: number;
-                anthropic_server_tool_use?:{
+                anthropic_server_tool_use?: {
                     web_fetch_requests?: number;
                     web_search_requests?: number
                 },
-                anthropic_read_input_cache?:number
+                anthropic_read_input_cache?: number
             }
 
             export interface PromptTokensDetails {
@@ -293,6 +293,54 @@ export namespace Marisa {
             summarizeSuccess: [completion: Marisa.Chat.Completion.CompletionSession, updateKnowledgeCount?: number, updateMemoryCount?: number]
             summarizeFail: [error?: Error | string]
             summarizeStart: []
+        }
+
+        export namespace AgentComponent {
+
+            export interface Basic {
+                installSuccess: [],
+                installFail: [reason?: unknown]
+            }
+
+            export interface SkillComponent {
+                skillRegistered: [skills: { name: string, path: string }[]],
+                skillLoadSuccess: [skillName: string],
+                skillLoadFail: [skillName: string],
+                skillLoad: [skillName: string]
+            }
+
+            export interface SubAgentComponent {
+                subAgentExecFail: [error?: unknown],
+                subAgentExecSuccess: [session: Marisa.Chat.Completion.CompletionSession]
+                subAgentCreate: [tasks: {
+                    name: string,
+                    systemPrompt: string,
+                    prompt: string
+                }[],
+                    parallel: boolean,
+                    waitExecResult: boolean],
+                subAgentAllSettled: [resultMap: Record<string, string | Marisa.Chat.Completion.CompletionSession>]
+            }
+
+            export interface TODOComponent {
+                todoCreate: [todo: {
+                    title: string,
+                    description: string,
+                    steps: string[],
+                    currentStep: number,
+                    uuid: string,
+                    status: 'pending' | 'complete' | 'failed'
+                }],
+                todoUpdate: [todo: {
+                    title: string,
+                    description: string,
+                    steps: string[],
+                    currentStep: number,
+                    uuid: string,
+                    status: 'pending' | 'complete' | 'failed'
+                }]
+            }
+
         }
 
         export interface Model extends ModelContextManager {
