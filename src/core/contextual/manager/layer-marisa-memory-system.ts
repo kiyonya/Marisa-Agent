@@ -56,24 +56,24 @@ interface EmbeddingKnowledge {
 
 export default class LayerMarisaMemorySystem extends ModelContextManager {
 
-    private readonly LONGTERM_MEMORY_TYPE = ['user', 'feedback', 'reference', 'experience']
-    private readonly LOAD_MEMORY_TOOL_NAME = 'LoadCategoricalMemory'
-    private readonly SEARCH_MEMORY_KNOWLEDGE_TOOL_NAME = 'SearchMemoryAndKnowledge'
-    private readonly MAX_SUMMARIZE_FAIL_COUNT = 3
+    protected readonly LONGTERM_MEMORY_TYPE = ['user', 'feedback', 'reference', 'experience']
+    protected readonly LOAD_MEMORY_TOOL_NAME = 'LoadCategoricalMemory'
+    protected readonly SEARCH_MEMORY_KNOWLEDGE_TOOL_NAME = 'SearchMemoryAndKnowledge'
+    protected readonly MAX_SUMMARIZE_FAIL_COUNT = 3
 
     //store
-    private longtermCategoricalMemoryStore: LongtermCategoricalMemoryStore | null = null
-    private hybridKnowledgeStore: HybridStore | null = null
+    protected longtermCategoricalMemoryStore: LongtermCategoricalMemoryStore | null = null
+    protected hybridKnowledgeStore: HybridStore | null = null
 
     public memoryOptions?: MemoryOptions
-    private summarizeSessionsPromise: Promise<void> | null = null
-    private pendingSummarizeQueue: Marisa.Chat.Completion.CompletionSession[] = []
+    protected summarizeSessionsPromise: Promise<void> | null = null
+    protected pendingSummarizeQueue: Marisa.Chat.Completion.CompletionSession[] = []
     //model
-    private embeddingModel: EmbeddingModel | null = null
-    private embeddingDimension: number = 768
-    private summarizeChatModel: ChatModel | null = null
-    private savePendingSummarizeQueue: (() => void) | null = null
-    private addContextFunction: ((session: Marisa.Chat.Completion.CompletionSession) => void) | null = null
+    protected embeddingModel: EmbeddingModel | null = null
+    protected embeddingDimension: number = 768
+    protected summarizeChatModel: ChatModel | null = null
+    protected savePendingSummarizeQueue: (() => void) | null = null
+    protected addContextFunction: ((session: Marisa.Chat.Completion.CompletionSession) => void) | null = null
 
     public relevantKnowledgeHybridMethod?: (vectorQueryResult: HybridStoreQueryResult<Metadata>[], keywordQueryResult: HybridStoreQueryResult<Metadata>[], limit: number, vecWeight: number, keywordWeight: number, scoreThreshold: number) => HybridStoreQueryResult<Metadata>[] | Promise<HybridStoreQueryResult<Metadata>[]>
 
@@ -160,7 +160,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
 
     }
 
-    private async put(session: Marisa.Chat.Completion.CompletionSession, withHistory?: Marisa.Chat.Completion.CompletionSession[], sessionPutCallback?: () => void) {
+    protected async put(session: Marisa.Chat.Completion.CompletionSession, withHistory?: Marisa.Chat.Completion.CompletionSession[], sessionPutCallback?: () => void) {
 
         const copySession = deepClone(session)
         this.addContextFunction?.(copySession)
@@ -171,7 +171,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         }
     }
 
-    public async query(userPrompt: string): Promise<[sessions: Marisa.Chat.Completion.CompletionSession[], promptAddition: string]> {
+    protected async query(userPrompt: string): Promise<[sessions: Marisa.Chat.Completion.CompletionSession[], promptAddition: string]> {
 
         const hotSessions = this.filterSessions(this.memoryOptions?.hotMemoryLength ?? 5, this.memoryOptions?.simplifyHotMemoryLength ?? 3)
 
@@ -183,13 +183,13 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         return [this.noSystemInject([relevantKnowledgeSession, ...hotSessions]), relevantReminderPrompt]
     }
 
-    private appendSessionIntoPendingSummarizeQueue(session: Marisa.Chat.Completion.CompletionSession) {
+    protected appendSessionIntoPendingSummarizeQueue(session: Marisa.Chat.Completion.CompletionSession) {
         this.pendingSummarizeQueue.push(session)
         this.savePendingSummarizeQueue?.()
         this.tryProcessPendingSummarizeQuene()
     }
 
-    private tryProcessPendingSummarizeQuene(force: boolean = false, failedTime: number = 0) {
+    protected tryProcessPendingSummarizeQuene(force: boolean = false, failedTime: number = 0) {
         if (this.summarizeSessionsPromise) { return }
         if (failedTime > this.MAX_SUMMARIZE_FAIL_COUNT) {
             console.warn("总结屡次失败，强制关闭")
@@ -228,7 +228,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         }
     }
 
-    private needCreateSummarizationOfPendingSummarizeQueue(): null | Marisa.Chat.Completion.CompletionSession[] {
+    protected needCreateSummarizationOfPendingSummarizeQueue(): null | Marisa.Chat.Completion.CompletionSession[] {
         const singleSummarizeLength = this.memoryOptions?.singleSummarizeLength ?? 5
         let needSlicePendingQuene: boolean = false
 
@@ -258,7 +258,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         return null
     }
 
-    public async runSummarizeSessions(sessions: Marisa.Chat.Completion.CompletionSession[]) {
+    protected async runSummarizeSessions(sessions: Marisa.Chat.Completion.CompletionSession[]) {
 
         const flatSessionMetadatas = sessions.map(this.extractSessionMessagesToMetadatas).flat()
         if (this.summarizeChatModel) {
@@ -268,7 +268,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
 
     }
 
-    public async runSummarizeSubAgent(model: ChatModel, metadatas: Metadata[]) {
+    protected async runSummarizeSubAgent(model: ChatModel, metadatas: Metadata[]) {
 
         if (!this.longtermCategoricalMemoryStore) { return }
 
@@ -535,7 +535,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         }
     }
 
-    public async createKnowledgeEmbedding(map: Map<string, Metadata>, commits: EmbeddingKnowledge[]) {
+    protected async createKnowledgeEmbedding(map: Map<string, Metadata>, commits: EmbeddingKnowledge[]) {
 
         if (!commits.length) { return }
 
@@ -594,20 +594,20 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         await this.hybridKnowledgeStore?.batchInsert(createInsert)
     }
 
-    public async createMemoryUpdate(commits: LongtermCategoricalMemory[]) {
+    protected async createMemoryUpdate(commits: LongtermCategoricalMemory[]) {
         if (!this.longtermCategoricalMemoryStore) { return }
         for (const commit of commits) {
             await this.longtermCategoricalMemoryStore.createOrUpdateMemory(commit)
         }
     }
 
-    private createHashUUID(content: string) {
+    protected createHashUUID(content: string) {
         content = content.trim()
         const uuid = crypto.createHash('md5').update(content).digest('hex')
         return uuid
     }
 
-    public combineMetadata(metadatas: Metadata[]): Metadata {
+    protected combineMetadata(metadatas: Metadata[]): Metadata {
         let focusRole: AllowStoreRole = 'user'
         let combineContent: string = ""
         let latestTime: number = 0
@@ -625,7 +625,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         return metadata
     }
 
-    public extractSessionMessagesToMetadatas(session: Marisa.Chat.Completion.CompletionSession): Metadata[] {
+    protected extractSessionMessagesToMetadatas(session: Marisa.Chat.Completion.CompletionSession): Metadata[] {
         const stack: Metadata[] = [];
         const result: Metadata[] = [];
         let pendingTool = false;
@@ -703,7 +703,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         return result;
     }
 
-    private async queryRelevantKnowledge(query: string): Promise<HybridStoreQueryResult<Metadata>[]> {
+    protected async queryRelevantKnowledge(query: string): Promise<HybridStoreQueryResult<Metadata>[]> {
         if (!this.hybridKnowledgeStore) { return [] }
 
         let queryVector: Float32Array<ArrayBufferLike> | null = null
@@ -728,13 +728,13 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         return hybrid
     }
 
-    private async queryRelevantLongtermMemory(keywords: string[]): Promise<LongtermCategoricalMemory[]> {
+    protected async queryRelevantLongtermMemory(keywords: string[]): Promise<LongtermCategoricalMemory[]> {
         if (!this.longtermCategoricalMemoryStore) { return [] }
         const memories = await this.longtermCategoricalMemoryStore.matchMemory(keywords)
         return memories
     }
 
-    private hybridVectorAndKeyword(vectorQueryResult: HybridStoreQueryResult<Metadata>[], keywordQueryResult: HybridStoreQueryResult<Metadata>[], limit: number, vecWeight: number, keywordWeight: number, scoreThreshold: number) {
+    protected hybridVectorAndKeyword(vectorQueryResult: HybridStoreQueryResult<Metadata>[], keywordQueryResult: HybridStoreQueryResult<Metadata>[], limit: number, vecWeight: number, keywordWeight: number, scoreThreshold: number) {
 
         const hybridMap = new Map<string, HybridStoreQueryResult<Metadata>>()
 
@@ -781,7 +781,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         return result
     }
 
-    private buildAgentMemoryTool() {
+    protected buildAgentMemoryTool() {
 
         if (!this.longtermCategoricalMemoryStore) { return [] }
         const longtermCategoricalMemoryStore = this.longtermCategoricalMemoryStore
@@ -845,7 +845,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         return [loadLongtermCategoricalMemoryDynamicTool, searchMemoryAndKnowledgeTool]
     }
 
-    private sleep(timems: number) {
+    protected sleep(timems: number) {
         return new Promise<void>((resolve) => {
             const timer = setInterval(() => {
                 clearInterval(timer)
@@ -854,7 +854,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         })
     }
 
-    private createSessionFromHybridResult(hybridResult: HybridStoreQueryResult<Metadata>[]): Marisa.Chat.Completion.CompletionSession {
+    protected createSessionFromHybridResult(hybridResult: HybridStoreQueryResult<Metadata>[]): Marisa.Chat.Completion.CompletionSession {
         const session = this.createEmptySession()
         for (const result of hybridResult) {
             if (result.metadata) {
