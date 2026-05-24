@@ -102,7 +102,7 @@ export default class SqliteHybridStore<Metadata extends Record<any, any> = any> 
                 $vector: JSON.stringify(Array.from(vector)),
                 $limit: limit
             }) || []) as HybridVectorQueryRow[]
-            const results: HybridStoreQueryResult<Metadata>[] = rows.map(i => ({ ...i, metadata: i.metadata ? JSON.parse(i.metadata) as Metadata : undefined }))
+            const results: HybridStoreQueryResult<Metadata>[] = rows.map(i => ({ ...i, metadata: i.metadata ? JSON.parse(i.metadata) as Metadata : undefined,score:1-i.distance }))
             return results
         } catch (error) {
             console.error(error)
