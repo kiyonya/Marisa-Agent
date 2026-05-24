@@ -1,23 +1,22 @@
+import z from "zod";
+import path from "node:path";
+import crypto from 'crypto'
+import fs from 'node:fs'
+import chalk from "chalk";
+
 import { Marisa } from "@type/marisa";
 import { ModelContextManager } from "./model-context-manager";
 import { deepClone } from "@core/utils/base";
 import ChatModel from "@core/model/chat/chat-model";
 import LocalTool from "@core/tool/local-tool";
-import z from "zod";
-import path from "node:path";
-import crypto from 'crypto'
-import fs from 'node:fs'
 import LongtermCategoricalMemoryStore from "../longterm/longterm-cmemory-manager";
 import { SqliteLongtermCategoricalMemoryManager as SqliteLongtermCategoricalMemoryStore } from "../longterm/sqlite-longterm-cmemory";
 import EmbeddingModel from "@core/model/embedding/embedding-model";
 import { HybridStore, HybridStoreInsertItem } from "@core/store/hybrid/hybrid-store";
 import SqliteHybridStore from "@core/store/hybrid/sqlite-hybrid-store";
 import { HybridStoreQueryResult } from "@core/store/impl/result";
-import BaseHybridAlgorithm from "@core/store/hybrid-algorithm/base-hybrid-algorithm";
-import HybridAlgorithm from "@core/store/hybrid-algorithm/hybrid-algorithm";
 import DynamicTool from "@core/tool/dynamic-tool";
-import chalk from "chalk";
-
+import XMLPromptTemplate from "@core/prompt/template/xml-prompt-template";
 
 export interface MemoryOptions {
     singleSummarizeLength?: number,
@@ -28,6 +27,7 @@ export interface MemoryOptions {
 
 type AllowStoreRole = 'user' | 'assistant' | 'developer'
 export type MemoryCategoryAllowedType = 'user' | 'feedback' | 'reference' | 'experience'
+
 interface Metadata {
     content: string,
     time: number,
@@ -69,9 +69,10 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
     private embeddingModel: EmbeddingModel | null = null
     private embeddingDimension: number = 768
     private summarizeChatModel: ChatModel | null = null
-    public memoryHybridAlgorithm: BaseHybridAlgorithm | null = null
     private savePendingSummarizeQueue: (() => void) | null = null
     private addContextFunction: ((session: Marisa.Chat.Completion.CompletionSession) => void) | null = null
+
+    public relevantKnowledgeHybridMethod?: (vectorQueryResult: HybridStoreQueryResult<Metadata>[], keywordQueryResult: HybridStoreQueryResult<Metadata>[], limit: number) => HybridStoreQueryResult<Metadata>[] | Promise<HybridStoreQueryResult<Metadata>[]>
 
     constructor(summarizeChatModel?: ChatModel, embeddingModel?: EmbeddingModel, embeddingDimension?: number, longtermCategoricalMemoryStore?: LongtermCategoricalMemoryStore, hybridStore?: HybridStore, options?: MemoryOptions) {
         super()
@@ -171,20 +172,10 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
 
         const hotSessions = this.filterSessions(this.memoryOptions?.hotMemoryLength ?? 5, this.memoryOptions?.simplifyHotMemoryLength ?? 3)
 
-        let metadatas: Metadata[] = await this.queryRelevantKnowledge(userPrompt) || []
-        console.log(chalk.bgBlue.white(`向量与查询数据库找到 ${metadatas.length} 条有关记忆`))
-
-        metadatas = metadatas.map(i => ({
-            content: `<relevant-reminder>${i.content}</relevant-reminder>`,
-            role: 'user',
-            time: i.time
-        }))
+        const hybridStoreQueryResult = await this.queryRelevantKnowledge(userPrompt) || []
+        const relevantKnowledgeSession = this.createSessionFromHybridResult(hybridStoreQueryResult)
 
         const relevantReminderPrompt = "content include in tag <relevant-reminder></relevant-reminder> is a history relevant message for you to know,just accept it when it suitable"
-
-        const relevantKnowledgeSession = this.createEmptySession()
-        const relevantKnowledgeMessages = metadatas.map(this.buildMessageFromMetadata)
-        relevantKnowledgeSession.messages = relevantKnowledgeMessages.filter(i => i !== null)
 
         return [this.noSystemInject([relevantKnowledgeSession, ...hotSessions]), relevantReminderPrompt]
     }
@@ -709,7 +700,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         return result;
     }
 
-    private async queryRelevantKnowledge(query: string): Promise<Metadata[]> {
+    private async queryRelevantKnowledge(query: string): Promise<HybridStoreQueryResult<Metadata>[]> {
         if (!this.hybridKnowledgeStore) { return [] }
 
         let queryVector: Float32Array<ArrayBufferLike> | null = null
@@ -721,38 +712,69 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
             }
         }
 
-        const vectorQueryResult: HybridStoreQueryResult<Metadata>[] = (queryVector) ? await this.hybridKnowledgeStore.queryVector(queryVector) : []
-        const keywordQueryResult: HybridStoreQueryResult<Metadata>[] = await this.hybridKnowledgeStore.queryKeyword(query)
-
         const limit = this.memoryOptions?.maxQueryMemoryLength ?? 5
 
-        let hybrid: HybridStoreQueryResult<Metadata>[] = []
+        const vectorQueryResult: HybridStoreQueryResult<Metadata>[] = (queryVector) ? await this.hybridKnowledgeStore.queryVector(queryVector, limit) : []
+        const keywordQueryResult: HybridStoreQueryResult<Metadata>[] = await this.hybridKnowledgeStore.queryKeyword(query, limit)
 
-        if ([vectorQueryResult, keywordQueryResult].some(i => i.length === 0)) {
-            hybrid.push(...vectorQueryResult.slice(0, limit), ...keywordQueryResult.slice(0, limit))
-        }
-        else if (this.memoryHybridAlgorithm) {
-            hybrid = await this.memoryHybridAlgorithm.run<Metadata>(vectorQueryResult, keywordQueryResult, limit)
-        }
-        else {
-            const alg = new HybridAlgorithm.ReciprocalRankFusion()
-            hybrid = await alg.run<Metadata>(vectorQueryResult, keywordQueryResult, limit)
-        }
-
-        const metadatas: Metadata[] = []
-        for (const hb of hybrid) {
-            if (hb.metadata) {
-                metadatas.push(hb.metadata)
-            }
-        }
-
-        return metadatas
+        let hybrid: HybridStoreQueryResult<Metadata>[] = this.relevantKnowledgeHybridMethod ? await this.relevantKnowledgeHybridMethod(vectorQueryResult, keywordQueryResult, limit) : this.hybridVectorAndKeyword(vectorQueryResult, keywordQueryResult, limit)
+        return hybrid
     }
 
     private async queryRelevantLongtermMemory(keywords: string[]): Promise<LongtermCategoricalMemory[]> {
         if (!this.longtermCategoricalMemoryStore) { return [] }
         const memories = await this.longtermCategoricalMemoryStore.matchMemory(keywords)
         return memories
+    }
+
+    private hybridVectorAndKeyword(vectorQueryResult: HybridStoreQueryResult<Metadata>[], keywordQueryResult: HybridStoreQueryResult<Metadata>[], limit: number) {
+
+        const vecScoreWeight: number = 0.7
+        const keywordScoreWeight: number = 1 - vecScoreWeight
+        const scoreThreshold = 0.6
+        const hybridMap = new Map<string, HybridStoreQueryResult<Metadata>>()
+
+        const vectorScoreArray = [...vectorQueryResult.map(i => i.score)]
+        const minVecScore = Math.min(...vectorScoreArray)
+        const maxVecScore = Math.max(...vectorScoreArray)
+        const vecMinMaxDelta = maxVecScore - minVecScore
+        for (const result of vectorQueryResult) {
+            const score = result.score
+            const minmaxScore = (score - minVecScore) / vecMinMaxDelta
+            const weightScore = minmaxScore * vecScoreWeight
+            const uuid = result.uuid
+            if (hybridMap.has(uuid)) {
+                const item = hybridMap.get(uuid)!
+                item.score += weightScore
+                hybridMap.set(uuid, item)
+            }
+            else {
+                hybridMap.set(uuid, { ...result, score: weightScore })
+            }
+        }
+
+        const keywordScoreArray = [...keywordQueryResult.map(u => u.score)]
+        const minKeywordScore = Math.min(...keywordScoreArray)
+        const maxKeywordScore = Math.max(...keywordScoreArray)
+        const keywordMinMaxDelta = maxKeywordScore - minKeywordScore
+        for (const result of keywordQueryResult) {
+            const score = result.score
+            const minmaxScore = (score - minKeywordScore) / keywordMinMaxDelta
+            const weightScore = minmaxScore * keywordScoreWeight
+            const uuid = result.uuid
+            if (hybridMap.has(uuid)) {
+                const item = hybridMap.get(uuid)!
+                item.score += weightScore
+                hybridMap.set(uuid, item)
+            }
+            else {
+                hybridMap.set(uuid, { ...result, score: weightScore })
+            }
+        }
+
+        const result = [...hybridMap.values()].sort((a, b) => b.score - a.score).filter(s => s.score >= scoreThreshold).slice(0, limit)
+        console.warn(JSON.stringify(result, null, 4))
+        return result
     }
 
     private buildAgentMemoryTool() {
@@ -805,7 +827,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
             }
 
             let knowledges: string = matchKnowledges.length ? `
-            ## Knowledge Maybe Relavant:\n ${matchKnowledges.map(i => `- role:${i.role}  time:${this.semantifyTimestamp(i.time)}  content:${i.content}\n`).join('')}` : '';
+            ## Knowledge Maybe Relavant:\n ${matchKnowledges.map(i => `- summary:${i.content} | role:${i.metadata?.role} | raw-content:${i.metadata?.content} | time:${i.metadata ? this.semantifyTimestamp(i.metadata.time) : 'no-time'}`).join('\n')}` : '';
 
             let categoricalMemories = matchCategoricalMemories.length ? `
             ## Categorical Memory Maybe Matches:\n${matchCategoricalMemories.map(i => `- type:${i.metadata.type} | name:${i.metadata.name} | description:${i.metadata.description}\n`)}` : '';
@@ -819,38 +841,6 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         return [loadLongtermCategoricalMemoryDynamicTool, searchMemoryAndKnowledgeTool]
     }
 
-
-    private buildMessageFromMetadata(metadata?: Metadata) {
-        if (!metadata) {
-            return null
-        }
-        switch (metadata.role) {
-            case "user":
-                const userMessage: Marisa.Chat.Completion.Messages.ChatCompletionUserMessage = {
-                    role: 'user',
-                    content: metadata.content,
-                    timestamp: metadata.time,
-                }
-                return userMessage
-            case "assistant":
-                const assistantMessage: Marisa.Chat.Completion.Messages.ChatCompletionAssistantMessage = {
-                    role: 'assistant',
-                    content: metadata.content,
-                    timestamp: metadata.time,
-                    reasoning_content: ""
-                }
-                return assistantMessage
-            case "developer":
-                const developerMessage: Marisa.Chat.Completion.Messages.ChatCompletionDeveloperMessage = {
-                    role: 'developer',
-                    content: metadata.content,
-                    timestamp: metadata.time
-                }
-                return developerMessage
-        }
-        return null
-    }
-
     private sleep(timems: number) {
         return new Promise<void>((resolve) => {
             const timer = setInterval(() => {
@@ -860,4 +850,27 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         })
     }
 
+    private createSessionFromHybridResult(hybridResult: HybridStoreQueryResult<Metadata>[]): Marisa.Chat.Completion.CompletionSession {
+        const session = this.createEmptySession()
+        for (const result of hybridResult) {
+            if (result.metadata) {
+                const raw = result.metadata.content
+                const summary = result.content
+                const time = result.metadata.time || Date.now()
+                const xml = new XMLPromptTemplate({
+                    "relevant-reminder": {
+                        ...(summary ? { summary: summary } : {}),
+                        "raw-content": raw
+                    }
+                }).toString()
+                console.log(xml)
+                session.messages.push({
+                    role: 'user',
+                    content: xml,
+                    timestamp: time
+                })
+            }
+        }
+        return session
+    }
 }
