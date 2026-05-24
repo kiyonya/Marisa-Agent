@@ -23,6 +23,9 @@ export interface MemoryOptions {
     maxQueryMemoryLength?: number,
     hotMemoryLength?: number,
     simplifyHotMemoryLength?: number,
+    hybridVectorWeight?: number,
+    hybridKeywordWeight?: number,
+    hybridScoreThreshold?: number
 }
 
 type AllowStoreRole = 'user' | 'assistant' | 'developer'
@@ -72,7 +75,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
     private savePendingSummarizeQueue: (() => void) | null = null
     private addContextFunction: ((session: Marisa.Chat.Completion.CompletionSession) => void) | null = null
 
-    public relevantKnowledgeHybridMethod?: (vectorQueryResult: HybridStoreQueryResult<Metadata>[], keywordQueryResult: HybridStoreQueryResult<Metadata>[], limit: number) => HybridStoreQueryResult<Metadata>[] | Promise<HybridStoreQueryResult<Metadata>[]>
+    public relevantKnowledgeHybridMethod?: (vectorQueryResult: HybridStoreQueryResult<Metadata>[], keywordQueryResult: HybridStoreQueryResult<Metadata>[], limit: number, vecWeight: number, keywordWeight: number, scoreThreshold: number) => HybridStoreQueryResult<Metadata>[] | Promise<HybridStoreQueryResult<Metadata>[]>
 
     constructor(summarizeChatModel?: ChatModel, embeddingModel?: EmbeddingModel, embeddingDimension?: number, longtermCategoricalMemoryStore?: LongtermCategoricalMemoryStore, hybridStore?: HybridStore, options?: MemoryOptions) {
         super()
@@ -717,7 +720,11 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         const vectorQueryResult: HybridStoreQueryResult<Metadata>[] = (queryVector) ? await this.hybridKnowledgeStore.queryVector(queryVector, limit) : []
         const keywordQueryResult: HybridStoreQueryResult<Metadata>[] = await this.hybridKnowledgeStore.queryKeyword(query, limit)
 
-        let hybrid: HybridStoreQueryResult<Metadata>[] = this.relevantKnowledgeHybridMethod ? await this.relevantKnowledgeHybridMethod(vectorQueryResult, keywordQueryResult, limit) : this.hybridVectorAndKeyword(vectorQueryResult, keywordQueryResult, limit)
+        const vecWeight: number = this.memoryOptions?.hybridVectorWeight ?? 0.7
+        const keywordWeight: number = this.memoryOptions?.hybridKeywordWeight ?? 1 - vecWeight
+        const scoreThreshold = this.memoryOptions?.hybridScoreThreshold ?? 0.6
+
+        let hybrid: HybridStoreQueryResult<Metadata>[] = this.relevantKnowledgeHybridMethod ? await this.relevantKnowledgeHybridMethod(vectorQueryResult, keywordQueryResult, limit, vecWeight, keywordWeight, scoreThreshold) : this.hybridVectorAndKeyword(vectorQueryResult, keywordQueryResult, limit, vecWeight, keywordWeight, scoreThreshold)
         return hybrid
     }
 
@@ -727,11 +734,8 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         return memories
     }
 
-    private hybridVectorAndKeyword(vectorQueryResult: HybridStoreQueryResult<Metadata>[], keywordQueryResult: HybridStoreQueryResult<Metadata>[], limit: number) {
+    private hybridVectorAndKeyword(vectorQueryResult: HybridStoreQueryResult<Metadata>[], keywordQueryResult: HybridStoreQueryResult<Metadata>[], limit: number, vecWeight: number, keywordWeight: number, scoreThreshold: number) {
 
-        const vecScoreWeight: number = 0.7
-        const keywordScoreWeight: number = 1 - vecScoreWeight
-        const scoreThreshold = 0.6
         const hybridMap = new Map<string, HybridStoreQueryResult<Metadata>>()
 
         const vectorScoreArray = [...vectorQueryResult.map(i => i.score)]
@@ -741,7 +745,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         for (const result of vectorQueryResult) {
             const score = result.score
             const minmaxScore = (score - minVecScore) / vecMinMaxDelta
-            const weightScore = minmaxScore * vecScoreWeight
+            const weightScore = minmaxScore * vecWeight
             const uuid = result.uuid
             if (hybridMap.has(uuid)) {
                 const item = hybridMap.get(uuid)!
@@ -760,7 +764,7 @@ export default class LayerMarisaMemorySystem extends ModelContextManager {
         for (const result of keywordQueryResult) {
             const score = result.score
             const minmaxScore = (score - minKeywordScore) / keywordMinMaxDelta
-            const weightScore = minmaxScore * keywordScoreWeight
+            const weightScore = minmaxScore * keywordWeight
             const uuid = result.uuid
             if (hybridMap.has(uuid)) {
                 const item = hybridMap.get(uuid)!
