@@ -8,6 +8,8 @@ import Marisa from 'marisa';
 import SkillComponent from '@core/agent/skill/skill-component';
 import SubAgentComponent from '@core/agent/subagent/subagent-component';
 import AgentTODOComponent from '@core/agent/todo/todo';
+import SkillFile from '@core/agent/skill/skill-file';
+import SkillDef from '@core/agent/skill/skill-def';
 
 
 async function MyAwesomeAgent() {
@@ -32,7 +34,13 @@ async function MyAwesomeAgent() {
 
   //you can use chain to build your agent's logic, for example, we build an agent that can read user's steam game library and then answer questions about the games
 
+  const def = new SkillDef("how-to-work",{
+    name:'how-to-work',
+    description:"way to work"
+  },'GO FOR WORK')
+
   const skill = new SkillComponent()
+  skill.addSkill(def)
   const subagent = new SubAgentComponent()
   const todo = new AgentTODOComponent()
 
