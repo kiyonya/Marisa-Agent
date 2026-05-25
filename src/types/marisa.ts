@@ -1,5 +1,4 @@
 import { ChatCompletionMessageCustomToolCall, ChatCompletionMessageFunctionToolCall } from "openai/resources";
-import type { LLMCompletion } from "./completion";
 import OpenAI from "openai";
 import { StdioServerParameters } from "@modelcontextprotocol/sdk/client/stdio.js";
 import MCPTool from "../core/tool/mcp-tool";
@@ -211,8 +210,8 @@ export namespace Marisa {
 
         export interface ModelSkills extends Record<string, string> { }
 
-        export interface SkillFrontmatter {
-            name: string,
+        export interface SkillFrontmatter<SkillName = string> {
+            name: SkillName,
             description: string,
             license?: string,
             metadata?: Record<any, any>,
@@ -303,7 +302,7 @@ export namespace Marisa {
             }
 
             export interface SkillComponent {
-                skillRegistered: [skills: { name: string, path: string }[]],
+                skillRegistered: [skills: ({ type:'file',name: string, path: string } | {type:'def',name:string})[]],
                 skillLoadSuccess: [skillName: string],
                 skillLoadFail: [skillName: string],
                 skillLoad: [skillName: string]
