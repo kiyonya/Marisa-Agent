@@ -11,7 +11,8 @@ Important Notes
 - Prohibited from opening high-risk URLs, sensitive websites, known malicious domains, etc.
 - You must provide the **absolute path** of the file (e.g., D:/example.md) or a **complete URL address** that includes the protocol (e.g., https://example.com)
 - If the tool call returns an error, it means the file cannot be opened. You must inform the user to open the file manually and only retry when user let you to do.
-- You must ensure the local file exists before attempting to open it.`
+- You must ensure the local file exists before attempting to open it.
+`
 
 const OpenFileOrURL = new LocalTool<{ fileOrURL: string }>("OpenFileOrURL", description, async ({ fileOrURL }, permissionAsker) => {
 
