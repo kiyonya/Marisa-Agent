@@ -10,38 +10,39 @@ const MAX_RESPONSE_SIZE = 256 * 1024 // 256KB
 const COOKIE_CACHE = new Map<string, string>()
 
 const description = `
-WebAjax工具，发送http/https请求
-什么时候使用：
-- 当用户明确说明需要获取某个接口信息时
-- 当你的skill提供对应操作方法时
-- 当上一次结果中包含新的url时
+WebAjax Tool – Send HTTP/HTTPS Requests
 
-禁止事项：
-- 禁止请求敏感地址：严禁请求内网地址（如 192.168.*.*、localhost、*.internal）、本地文件协议（file://）、已知恶意域名，仅可请求公网可访问的 HTTP/HTTPS 地址
-- 禁止携带可能伤害接口的内容，例如sql注入，xss攻击等
+When to use:
+- When the user explicitly requests to retrieve information from an API
+- When your skill provides corresponding operational methods
+- When the previous result contains a new URL
 
-注意事项
-- 当请求地址包含set-cookie时，下次同域会自动携带这个cookie以保持请求连续性
+Prohibited actions:
+- **Requesting sensitive addresses is strictly prohibited:** Do not request internal network addresses (e.g., 192.168.*.*, localhost, *.internal), local file protocols (file://), or known malicious domains. Only publicly accessible HTTP/HTTPS addresses are allowed.
+- **Do not include content that may harm the interface,** such as SQL injection, XSS attacks, etc.
 
-请求方法：
-- url： 你需要提供明确的url地址，地址必须包括协议 例如https://api.example.com/weather，如果url地址携带参数，你可以拼接到url地址内
-- method：请求方法，你需要提供请求的方法 你可以使用 GET POST PUT DELETE
-- header：请求头，你可以设置请求头对象，例如user-agent，cookie，content-type，reference等
-- body：请求体，当你使用POST 或者 PUT 请求时，你可以携带请求体，请求体必须是字符串形式或者键值对形式，禁止携带Buffer
-- timeout：超时时间，默认为5000毫秒
-- formdata：表单内容，当你设置了表单内容时，body将会被忽略，你需要提供一个键值对来表示表单元素，键为表单键，值可以为字符串，数字，布尔值。当你需要在表单携带本地文件时，你需要使用 特别的 **<formdata-file>本地文件的绝对路径</formdata-file>**，文件不存在时工具将会报错
+Note:
+- When the response from a request includes \`set-cookie\`, subsequent requests to the same domain will automatically carry that cookie to maintain request continuity.
 
-返回内容：
-- data: 响应体，响应体仅会返回JSON、页面、或者字符串响应体最大长度为256KB，超过的内容会被截断，响应体不会返回媒体文件，图片，数据流，webrtc，sse事件流
-- headers：响应头，序列化json键值对
-- status：状态码，其中2xx代表ok，3xx代表重定向，4xx请求错误，5xx服务器错误
+Request parameters:
+- **url:** You must provide a clear URL address, including the protocol (e.g., \`https://api.example.com/weather\`). If the URL contains parameters, you can append them to the URL string.
+- **method:** Provide the request method. You can use \`GET\`, \`POST\`, \`PUT\`, \`DELETE\`.
+- **header:** You can set request header objects, such as \`user-agent\`, \`cookie\`, \`content-type\`, \`referer\`, etc.
+- **body:** For \`POST\` or \`PUT\` requests, you can include a request body. The body must be a string or key-value pairs. Buffers are not allowed.
+- **timeout:** Timeout duration in milliseconds (default is 5000 ms).
+- **formdata:** When form data is set, the \`body\` will be ignored. You need to provide key-value pairs representing form elements, where the key is the form field name and the value can be a string, number, or boolean. If you need to include a local file in the form data, you must use the special syntax: **\`<formdata-file>Absolute path to local file</formdata-file>\`**. If the file does not exist, the tool will return an error.
 
-结果处理
-- 当请求超时，你可以选择重试最多一次，如果仍然超时你需要立刻停止并向用户说明情况
-- 当响应状态码为400时，检查你的请求体，最多可以重复尝试一次，如果失败请立刻停止并向用户说明情况
-- 当状态码为5xx时，不要尝试，说明情况后停止
-- 其他错误：例如无网络，用户拒绝，DNS错误，请不要重试，立刻停止
-- 当接口里包含其他接口或者地址时，你可以根据当前的响应结果再次发送新请求
+Returned content:
+- **data:** The response body. Only JSON, HTML pages, or string responses are returned. The maximum response body length is 256KB; longer content will be truncated. The response body will **not** return media files, images, data streams, WebRTC, or SSE event streams.
+- **headers:** Response headers as a serialized JSON key-value object.
+- **status:** The HTTP status code. \`2xx\` indicates OK, \`3xx\` indicates redirection, \`4xx\` indicates client error, and \`5xx\` indicates server error.
+
+Handling results:
+- **Timeout:** You may retry **once at most**. If it times out again, stop immediately and explain the situation to the user.
+- **Status code 400 (Bad Request):** Check your request body. You may retry **once at most**. If it fails again, stop immediately and explain the situation to the user.
+- **Status code 5xx (Server Error):** Do not retry. Explain the situation and stop.
+- **Other errors** (e.g., no network, user denial, DNS error): Do not retry. Stop immediately.
+- If the response contains other APIs or URLs, you may send new requests based on the current response result.
 `
 
 interface WebAjaxParams {
