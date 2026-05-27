@@ -49,16 +49,16 @@ export default class CliEndPoint extends ModelEndPoint {
                     break;
                 }
                 let isSlashCommand = CommandProcessor.IsSlashCommand(input)
+
+                let thinkingAnim: null | { stop: (timems?: number) => void } = null
+                let timer: null | { stopAndGetTime: () => number } = null
+
+                if (!isSlashCommand) {
+                    thinkingAnim = this.createThinkingAnimation()
+                    timer = this.createSecondCounter()
+                }
+
                 try {
-
-                    let thinkingAnim: null | { stop: (timems?: number) => void } = null
-                    let timer: null | { stopAndGetTime: () => number } = null
-
-                    if (!isSlashCommand) {
-                        thinkingAnim = this.createThinkingAnimation()
-                        timer = this.createSecondCounter()
-                    }
-
                     let reasoningPayload: string | null = null
                     const response = await this.chatModel.invokeStream(input,
                         (delta, payload, _r, rpayload) => {
@@ -93,8 +93,15 @@ export default class CliEndPoint extends ModelEndPoint {
                         this.printSingleLine(chalk.blue.white(this.createUsageText(response.usage)))
                     }
                 } catch (error) {
-                    //gen error
+                    console.log(error)
+                    if (error instanceof ChatModel.ChatCancelException) {
+                        console.log('canceled')
+                        thinkingAnim && thinkingAnim.stop()
+                        timer && timer.stopAndGetTime()
+                        continue
+                    }
                 }
+
             } catch (error) {
                 if (error instanceof Error && error.name === 'ExitPromptError') {
                     this.isRunning = false;
@@ -185,13 +192,4 @@ export default class CliEndPoint extends ModelEndPoint {
         return item.map(i => ` ${i} `).join("")
     }
 
-    private clearLine(lines: number) {
-        if (!lines) { return }
-        const MOVE_LEFT = Buffer.from('1b5b3130303044', 'hex').toString();
-        const MOVE_UP = Buffer.from('1b5b3141', 'hex').toString();
-        const CLEAR_LINE = Buffer.from('1b5b304b', 'hex').toString();
-        for (let index = 0; index < lines; index++) {
-            process.stdout.write(MOVE_LEFT + CLEAR_LINE + MOVE_UP);
-        }
-    }
 }
