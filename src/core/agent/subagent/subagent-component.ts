@@ -111,14 +111,14 @@ It is **strongly recommended** to use CreateSubAgent in the following scenarios:
             this.subAgentToolMap.set(tool.toolName, tool)
         }
         this.installFunction = (installer) => {
-            const model = chatModel || installer.getModel()
-            const tool = this.createToolForMainAgent(installer.workspace, model)
+            
+            const tool = this.createToolForMainAgent(installer.workspace, installer.callModel().complete)
             installer.registerTool(tool)
             installer.registerSystemPromptFragment(this.mainAgentSystemPromptGuide)
         }
     }
 
-    private createToolForMainAgent(workspace: string, chatModel: ChatModel) {
+    private createToolForMainAgent(workspace: string, complete: (prompt: string, systemPrompt?: string | undefined, toolMap?: Map<string, Marisa.Tool.AnyTool> | undefined, options?: Marisa.Chat.Completion.ChatCompletionCreateOptions) => Promise<Marisa.Chat.Completion.CompletionSession>) {
 
         const toolDescription = `Tool for creating sub-agents to handle specific tasks. Accepts a list of tasks with their respective system prompts and user prompts, along with execution options.Returns the results of each sub-agent's execution if waitExecResult is true, otherwise returns true after initiating all sub-agents.\nwhen your task need create or read files,you must tell the sub-agent the path of file or directory in absolute path, and the sub-agent will read or create files in the workspace directory. the workspace directory is ${workspace}.`
 
@@ -134,7 +134,7 @@ It is **strongly recommended** to use CreateSubAgent in the following scenarios:
                 ${this.subAgentSystemPrompt}\n\n
                 ${task.systemPrompt}
                 `
-                taskPromiseMap.set(name, chatModel.complete(taskPrompt, l1systemPrompt, this.subAgentToolMap))
+                taskPromiseMap.set(name, complete(taskPrompt, l1systemPrompt, this.subAgentToolMap))
             }
 
             const executor = this.taskMapExecutor(taskPromiseMap, parallel, waitExecResult)
