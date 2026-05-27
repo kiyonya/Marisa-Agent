@@ -4,8 +4,6 @@ import ChatModel, { RoundToolGetter } from "./chat-model";
 import ModelSessionView from "./model-session-view";
 import path from "path";
 
-type BuildToolFilter = (tool: Marisa.Tool.AnyTool) => boolean
-
 export default class OpenAIChatModel extends ChatModel {
 
     private client: OpenAI
@@ -16,8 +14,11 @@ export default class OpenAIChatModel extends ChatModel {
 
     protected override async completeHandler(
         sessionView: ModelSessionView,
-        toolMap?: Map<string, Marisa.Tool.AnyTool>):
+        toolMap?: Map<string, Marisa.Tool.AnyTool>,
+        options?: Marisa.Chat.Completion.ChatCompletionCreateOptions):
         Promise<void> {
+
+        this.throwIfAborted(options?.signal)
 
         const roundTools = (toolMap && toolMap.size) ? this.buildIsolationTool(toolMap).map(i => i.buildAsOpenAI()) : []
 
@@ -34,7 +35,21 @@ export default class OpenAIChatModel extends ChatModel {
             tool_choice: this.modelCompletionOptions.toolChoice,
             parallel_tool_calls: this.modelCompletionOptions.parallelToolCalls,
         }
-        const completion = await this.client.chat.completions.create(openaiChatCreateOptions)
+
+        const completion = await this.client.chat.completions.create(
+            openaiChatCreateOptions,
+            {
+                ...(options?.headers ? { headers: options.headers } : {}),
+                ...(options?.timeout ? { timeout: options.timeout } : {}),
+                ...(options?.signal ? { signal: options.signal } : {}),
+                ...(options?.path ? { path: options.path } : {}),
+                ...(options?.query ? { query: options.query } : {}),
+                ...(options?.method ? { method: options.method } : {})
+            }).catch((error: unknown) => {
+                this.throwIfAborted(options?.signal)
+                throw error
+            })
+
         const choice = completion.choices[0];
         if (choice && choice.message) {
             const assistantMsg: Marisa.Chat.Completion.CompletionMessage = {
@@ -43,8 +58,6 @@ export default class OpenAIChatModel extends ChatModel {
                 tool_calls: choice.message.tool_calls,
                 timestamp: Date.now()
             };
-
-
             //@ts-ignore
             if (choice.message.reasoning_content) {
                 //@ts-ignore
@@ -91,11 +104,12 @@ export default class OpenAIChatModel extends ChatModel {
 
     protected override async invokeHandler(
         sessionView: ModelSessionView,
-        toolGatter: RoundToolGetter
+        toolGatter: RoundToolGetter,
+        options?: Marisa.Chat.Completion.ChatCompletionCreateOptions
     ): Promise<void> {
 
+        this.throwIfAborted(options?.signal)
         const roundTools = (await toolGatter()).map(i => i.buildAsOpenAI())
-
         const openaiChatCreateOptions: OpenAI.Chat.Completions.ChatCompletionCreateParams =
         {
             model: this.modelName,
@@ -110,7 +124,20 @@ export default class OpenAIChatModel extends ChatModel {
             parallel_tool_calls: this.modelCompletionOptions.parallelToolCalls,
         }
 
-        const completion = await this.client.chat.completions.create(openaiChatCreateOptions)
+        const completion = await this.client.chat.completions.create(
+            openaiChatCreateOptions,
+            {
+                ...(options?.headers ? { headers: options.headers } : {}),
+                ...(options?.timeout ? { timeout: options.timeout } : {}),
+                ...(options?.signal ? { signal: options.signal } : {}),
+                ...(options?.path ? { path: options.path } : {}),
+                ...(options?.query ? { query: options.query } : {}),
+                ...(options?.method ? { method: options.method } : {})
+            }).catch((error: unknown) => {
+                this.throwIfAborted(options?.signal)
+                throw error
+            })
+
         const choice = completion.choices[0];
         if (choice && choice.message) {
 
@@ -181,8 +208,11 @@ export default class OpenAIChatModel extends ChatModel {
     protected override async invokeStreamHandler(
         sessionView: ModelSessionView,
         toolGatter: RoundToolGetter,
-        onResponse?: Marisa.Chat.Completion.OnStreamResponseCallback
+        onResponse?: Marisa.Chat.Completion.OnStreamResponseCallback,
+        options?: Marisa.Chat.Completion.ChatCompletionCreateOptions
     ): Promise<void> {
+
+        this.throwIfAborted(options?.signal)
 
         const roundTools = (await toolGatter()).map(i => i.buildAsOpenAI())
         const openaiChatStreamCreateOptions: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming =
@@ -200,9 +230,18 @@ export default class OpenAIChatModel extends ChatModel {
         }
 
         const chatStream = await this.client.chat.completions.create(
-            openaiChatStreamCreateOptions
-        )
-
+            openaiChatStreamCreateOptions,
+            {
+                ...(options?.headers ? { headers: options.headers } : {}),
+                ...(options?.timeout ? { timeout: options.timeout } : {}),
+                ...(options?.signal ? { signal: options.signal } : {}),
+                ...(options?.path ? { path: options.path } : {}),
+                ...(options?.query ? { query: options.query } : {}),
+                ...(options?.method ? { method: options.method } : {})
+            }).catch((error: unknown) => {
+                this.throwIfAborted(options?.signal)
+                throw error
+            })
 
         const toolCallsMap: Record<number, OpenAI.Chat.Completions.ChatCompletionMessageToolCall> = {}
         let finishReason: OpenAI.Chat.Completions.ChatCompletionChunk['choices'][0]['finish_reason'] =
@@ -261,7 +300,7 @@ export default class OpenAIChatModel extends ChatModel {
             if (onResponse) {
                 responseCallbackContent.payload = assistantMessage.content || ""
                 responseCallbackContent.reasoningContentPayload = assistantMessage.reasoning_content || ""
-                
+
                 onResponse(responseCallbackContent.delta, responseCallbackContent.payload, responseCallbackContent.reasoningContentDelta || void 0, responseCallbackContent.reasoningContentPayload || void 0)
             }
 

@@ -73,6 +73,15 @@ export namespace Marisa {
 
         export namespace Completion {
 
+            export interface ChatCompletionCreateOptions {
+                method?:'get' | 'post' | 'put' | 'patch' | 'delete'
+                path?:string,
+                query?: object | undefined | null
+                headers?:Headers
+                signal?:AbortSignal | null | undefined
+                timeout?:number
+            }
+
             export namespace Messages {
 
                 export interface Message {
@@ -302,7 +311,7 @@ export namespace Marisa {
             }
 
             export interface SkillComponent {
-                skillRegistered: [skills: ({ type:'file',name: string, path: string } | {type:'def',name:string})[]],
+                skillRegistered: [skills: ({ type: 'file', name: string, path: string } | { type: 'def', name: string })[]],
                 skillLoadSuccess: [skillName: string],
                 skillLoadFail: [skillName: string],
                 skillLoad: [skillName: string]

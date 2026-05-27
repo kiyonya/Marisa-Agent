@@ -40,18 +40,21 @@ abstract class ChatModelAbstractImpl extends EventEmitter<Marisa.Events.Model> {
 
     protected abstract completeHandler(
         sessionView: ModelSessionView,
-        toolMap?: Map<string, Marisa.Tool.AnyTool>):
+        toolMap?: Map<string, Marisa.Tool.AnyTool>,
+        options?: Marisa.Chat.Completion.ChatCompletionCreateOptions):
         Promise<void>
 
     protected abstract invokeHandler(
         sessionView: ModelSessionView,
-        toolGatter: RoundToolGetter):
+        toolGatter: RoundToolGetter,
+        options?: Marisa.Chat.Completion.ChatCompletionCreateOptions):
         Promise<void>
 
     protected abstract invokeStreamHandler(
         sessionView: ModelSessionView,
         toolGatter: RoundToolGetter,
-        onResponse?: Marisa.Chat.Completion.OnStreamResponseCallback):
+        onResponse?: Marisa.Chat.Completion.OnStreamResponseCallback,
+        options?: Marisa.Chat.Completion.ChatCompletionCreateOptions):
         Promise<void>
 
 }
@@ -239,8 +242,9 @@ export default abstract class ChatModel extends ChatModelAbstractDefination {
         return this
     }
 
-    public async complete(prompt: string, systemPrompt?: string, toolMap?: Map<string, Marisa.Tool.AnyTool>): Promise<Marisa.Chat.Completion.CompletionSession> {
+    public async complete(prompt: string, systemPrompt?: string, toolMap?: Map<string, Marisa.Tool.AnyTool>, options?: Marisa.Chat.Completion.ChatCompletionCreateOptions): Promise<Marisa.Chat.Completion.CompletionSession> {
 
+        this.throwIfAborted(options?.signal)
         const completionSystemPrompt: string = systemPrompt || this.builsDefaultSystemPrompt() || ''
         const userMessage = await this.createUserMessage(prompt)
 
@@ -248,14 +252,15 @@ export default abstract class ChatModel extends ChatModelAbstractDefination {
         sessionView.setSystemPrompt(completionSystemPrompt)
         sessionView.pushMessageToCurrentSession(...userMessage)
 
-        await this.completeHandler(sessionView, toolMap)
+        await this.completeHandler(sessionView, toolMap, options)
 
         const session = sessionView.getSession()
         return session
     }
 
-    public async invoke(prompt: string, onSessionUpdate?: Marisa.Chat.Completion.OnSessionUpdateCallback): Promise<Marisa.Chat.Completion.CompletionSession | 'cmd'> {
+    public async invoke(prompt: string, onSessionUpdate?: Marisa.Chat.Completion.OnSessionUpdateCallback, options?: Marisa.Chat.Completion.ChatCompletionCreateOptions): Promise<Marisa.Chat.Completion.CompletionSession | 'cmd'> {
 
+        this.throwIfAborted(options?.signal)
         const userMessage = await this.createChatUserMessage(prompt)
         if (userMessage === null) {
             return 'cmd'
@@ -291,8 +296,9 @@ export default abstract class ChatModel extends ChatModelAbstractDefination {
         return session
     }
 
-    public async invokeStream(prompt: string, onResponse?: Marisa.Chat.Completion.OnStreamResponseCallback, onSessionUpdate?: Marisa.Chat.Completion.OnSessionUpdateCallback): Promise<Marisa.Chat.Completion.CompletionSession | "cmd"> {
+    public async invokeStream(prompt: string, onResponse?: Marisa.Chat.Completion.OnStreamResponseCallback, onSessionUpdate?: Marisa.Chat.Completion.OnSessionUpdateCallback, options?: Marisa.Chat.Completion.ChatCompletionCreateOptions): Promise<Marisa.Chat.Completion.CompletionSession | "cmd"> {
 
+        this.throwIfAborted(options?.signal)
         const userMessage = await this.createChatUserMessage(prompt)
         if (userMessage === null) {
             return 'cmd'
@@ -541,4 +547,13 @@ export default abstract class ChatModel extends ChatModelAbstractDefination {
         }
         endpoint.start()
     }
+
+    protected throwIfAborted(signal?: AbortSignal | null | undefined) {
+        if (!signal) { return }
+        if (signal.aborted) {
+            throw new ChatModel.ChatCancelException('completion aboarted')
+        }
+    }
+
+    public static ChatCancelException = class ChatCancelException extends Error { }
 }
