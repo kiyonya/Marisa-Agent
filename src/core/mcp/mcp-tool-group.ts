@@ -5,6 +5,9 @@ import { CallToolResultSchema, type ListToolsResult } from "@modelcontextprotoco
 import MCPTool from "../tool/mcp-tool";
 import ToolGroup from "../tool/tool-group";
 
+/**
+ * @deprecated please use `MCPComponent` and install mcp server as an agent component
+ */
 export default class MCPToolGroup extends ToolGroup {
 
     public transport: StdioClientTransport | StreamableHTTPClientTransport

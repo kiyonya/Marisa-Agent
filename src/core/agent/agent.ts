@@ -1,22 +1,22 @@
 import EventEmitter from "events";
-import { Marisa } from "../../types/marisa";
-import { StdioServerParameters } from "@modelcontextprotocol/sdk/client/stdio.js";
 import OpenAI from "openai";
-import ChatModel from "../model/chat/chat-model";
-import MCPToolGroup from "../mcp/mcp-tool-group";
-import { ModelContextManager } from "../contextual/manager/model-context-manager";
-import EmbeddingModel from "../model/embedding/embedding-model";
-import BasicContextManager from "../contextual/manager/basic-context-manager";
 import fs from 'fs'
 import path from "path";
-import AgentPluginBase from "../plugin/agent-plugin-base";
-import PluginInstaller from "../plugin/plugin-installer";
+
+import { Marisa } from "@type/marisa";
+import { StdioServerParameters } from "@modelcontextprotocol/sdk/client/stdio.js";
+import ChatModel from "@core/model/chat/chat-model";
+import { ModelContextManager } from "@core/contextual/manager/model-context-manager";
+import EmbeddingModel from "@core/model/embedding/embedding-model";
+import BasicContextManager from "@core/contextual/manager/basic-context-manager";
+import AgentPluginBase from "@core/plugin/agent-plugin-base";
+import PluginInstaller from "@core/plugin/plugin-installer";
 import AgentComponent from "./impl/agent-component";
 import AgentComponentInstaller from "./impl/agent-component-installer";
 import ToolGroup from "@core/tool/tool-group";
 import ChatModelComponent from "@core/model/chat/chat-model-component";
 import { Interceptor } from "@core/utils/interceptor";
-import AgentTODO from "./todo/todo";
+import MCPComponent from "./mcp/mcp-component";
 
 interface AgentEvents {
     create: [],
@@ -108,6 +108,11 @@ abstract class AgentDefination extends EventEmitter<AgentEvents> {
         return this
     }
 
+    /**
+     * @deprecated 
+     * please use `MCPComponent` instead
+     * this still work but we not recommend
+     */
     public useMCP(mcpServers: Record<string, (StdioServerParameters | URL)>) {
         for (const [serverName, server] of Object.entries(mcpServers)) {
             this.agentMCPServers.set(serverName, server)
@@ -194,9 +199,12 @@ export default abstract class Agent extends AgentDefination {
             readyToolGroups.push(...this.agentToolkits)
         }
         if (this.agentMCPServers.size) {
+            //兼容旧版mcp添加方法
+            const mcpComponent = new MCPComponent()
             for (const [name, server] of this.agentMCPServers.entries()) {
-                readyMCPServers.set(name, server)
+                mcpComponent.addMCPServer(name, server)
             }
+            readyComponents.push(mcpComponent)
         }
         if (this.agentPlugins.size) {
             readyPlugins.push(...this.agentPlugins.values())
@@ -221,11 +229,6 @@ export default abstract class Agent extends AgentDefination {
                     }
                     if (manifest.toolGroups) {
                         readyToolGroups.push(...manifest.toolGroups)
-                    }
-                    if (manifest.mcps && manifest.mcps.size) {
-                        for (const [name, server] of manifest.mcps.entries()) {
-                            readyMCPServers.set(name, server)
-                        }
                     }
                     if (manifest.plugins?.length) {
                         readyPlugins.push(...manifest.plugins)
@@ -276,14 +279,6 @@ export default abstract class Agent extends AgentDefination {
         //解压工具箱
         for (const toolgroup of readyToolGroups) {
             readyTools.push(...toolgroup)
-        }
-
-        //安装mcp服务器
-        for (const [serverName, server] of readyMCPServers.entries()) {
-            const mcp = new MCPToolGroup(serverName, server)
-            const mcptools = await mcp.init()
-            this.emit('mcprun', serverName)
-            readyTools.push(...mcptools)
         }
 
         //gc
