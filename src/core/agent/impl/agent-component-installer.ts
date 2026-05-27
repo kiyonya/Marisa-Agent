@@ -5,6 +5,7 @@ import AgentPluginBase from "@core/plugin/agent-plugin-base";
 import { StdioServerParameters } from "@modelcontextprotocol/sdk/client/stdio.js";
 import ChatModelComponent from "@core/model/chat/chat-model-component";
 import ChatModel from "@core/model/chat/chat-model";
+import EventEmitter from "node:events";
 
 
 export interface AgentComponentInstallManifest {
@@ -23,7 +24,6 @@ type Interceptor<I> = (prev: I) => I
 
 export default class AgentComponentInstaller extends ComponentInstaller<AgentComponentInstallManifest> {
 
-    public getModel:()=>ChatModel
     private readonly tools = new Map<string, Marisa.Tool.AnyToolParam>()
     private readonly mcps = new Map<string, URL | StdioServerParameters>()
     private readonly toolGroups = new Map<string, ToolGroup>()
@@ -36,10 +36,11 @@ export default class AgentComponentInstaller extends ComponentInstaller<AgentCom
             [K in keyof Marisa.Model.ModelInterceptors]?: Interceptor<Marisa.Model.ModelInterceptors[K]>[]
         } = {}
     private readonly modelSystemPromptFragments:string[] = []
+    private model:ChatModel
 
     constructor(workspace: string,model:ChatModel) {
         super(workspace)
-        this.getModel = ()=>model
+        this.model = model
     }
 
     public registerTool(tool: Marisa.Tool.AnyToolParam): void {
@@ -99,6 +100,23 @@ export default class AgentComponentInstaller extends ComponentInstaller<AgentCom
             modelSystemPromptFragments:this.modelSystemPromptFragments
         }
         return manifest
+    }
+
+    public modelEvents(){
+        return {
+            on:this.model.on,
+            off:this.model.off
+        }
+    }
+
+    public callModel(){
+        return  {
+            complete:this.model.complete,
+            invoke:this.model.invoke,
+            invokeStream:this.model.invokeStream,
+            invokeIsolate:this.model.invokeIsolate,
+            invokeStreamIsolate:this.model.invokeStreamIsolate
+        }
     }
 
 }
