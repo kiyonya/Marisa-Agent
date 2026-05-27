@@ -35,6 +35,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .marisa
 workspace
 
-./bun.lock
+_.lock
 ./index.ts
 .vscode
